@@ -191,11 +191,8 @@
 
                         <!-- Direct Trigger Actions -->
                         <div class="mt-auto pt-2 border-t border-slate-900">
-                            <button id="impostor-kill-btn" onclick="openImpostorKillAction()" class="hidden w-full bg-purple-950/80 border border-purple-500/30 hover:bg-purple-900 text-purple-200 py-2 px-3 rounded-lg text-xs font-semibold items-center justify-center gap-1.5 transition">
-                                🧪 [시뮬레이터 전용] 가상 강제 추방 (실물 NFC 없을 때만)
-                            </button>
                             <div id="crewmate-tip" class="text-[10px] text-slate-500 text-center py-1">
-                                정식 공격: ① 크루원 명찰을 직접 태그해 즉시 암살, ② 미션 구역 NFC에 덫 설치. 오염된 구역을 스캔하면 소거됩니다!
+                                정식 공격: 미션 구역 NFC에 덫을 설치. 오염된 구역을 스캔하면 소거됩니다!
                             </div>
                         </div>
                     </div>
@@ -295,7 +292,7 @@
                         <!-- Category: Mission Room Tags -->
                         <div class="mb-2">
                             <h3 class="text-[11px] font-bold text-slate-400 mb-1.5 border-l-2 border-emerald-500 pl-1.5 uppercase">2단계: 시설물 및 미션 NFC 태그</h3>
-                            <div class="grid grid-cols-3 gap-1.5">
+                            <div class="grid grid-cols-2 gap-1.5">
                                 <button onclick="simulateNfcScan('MissionWire')" class="relative flex flex-col justify-between bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-2 rounded-lg text-left transition text-xs">
                                     <span class="font-bold text-slate-300 block text-[10px]">⚡ 전기 배선실</span>
                                     <div class="flex justify-between items-center mt-1">
@@ -315,6 +312,13 @@
                                     <div class="flex justify-between items-center mt-1">
                                         <span class="bg-emerald-950 text-emerald-400 text-[9px] px-1 py-0.5 rounded">NFC#3</span>
                                         <span id="trap-indicator-MissionAdmin" class="hidden text-[9px] text-red-400 font-bold animate-pulse">😈 덫</span>
+                                    </div>
+                                </button>
+                                <button onclick="simulateNfcScan('MissionOxygen')" class="relative flex flex-col justify-between bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-2 rounded-lg text-left transition text-xs">
+                                    <span class="font-bold text-slate-300 block text-[10px]">🫧 산소 발생기실</span>
+                                    <div class="flex justify-between items-center mt-1">
+                                        <span class="bg-emerald-950 text-emerald-400 text-[9px] px-1 py-0.5 rounded">NFC#4</span>
+                                        <span id="trap-indicator-MissionOxygen" class="hidden text-[9px] text-red-400 font-bold animate-pulse">😈 덫</span>
                                     </div>
                                 </button>
                             </div>
@@ -423,10 +427,12 @@
                             <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> 마피아 전용 덫(오염) 규칙 가이드
                         </h4>
                         <ol class="list-decimal list-inside space-y-0.5 text-slate-400 text-[9px] leading-snug">
-                            <li><strong>마피아의 은밀한 오염</strong>: 임포스터가 미션룸 NFC를 태그하면, 보수 창 대신 덫이 설정됩니다.</li>
+                            <li><strong>마피아의 위장 보수</strong>: 임포스터가 미션룸 NFC를 태그하면 크루원과 똑같은(단, 더 쉬운) 미니게임이 뜨고, 성공해야만 그 자리에 덫이 설정됩니다. 실패해도 재시도 대기시간은 그대로 소모됩니다.</li>
                             <li><strong>시민의 의문사</strong>: 크루원이 해당 구역 NFC를 태그해 수리 작업을 하려고 한 순간, 경보음과 함께 사망 처리됩니다.</li>
+                            <li><strong>덫 재사용 대기시간</strong>: 임포스터가 덫을 설치하면 40초 동안 새 덫을 설치할 수 없습니다.</li>
                             <li><strong>실시간 상황판 안내</strong>: 사망 발생 즉시 메인 중앙 모니터(우측 상황판)에 비상 보고 알림이 발령됩니다.</li>
                             <li><strong>동선 브리핑 & 토론</strong>: 소리나 중앙 모니터를 통해 사망 소식을 확인한 뒤, 자유롭게 모여 해당 장소의 의심자를 자유 수색하세요!</li>
+                            <li><strong>낮/밤 사이클</strong>: GM이 "밤 선언"을 누르면 미션/덫 설치가 전원 잠기고 투표 패널이 자동으로 열립니다. 오프라인 투표(거수/구두) 결과를 입력해 추방하면 자동으로 낮으로 돌아가 미션이 다시 풀립니다.</li>
                         </ol>
                     </div>
                 </div>
@@ -535,7 +541,8 @@
             traps: {
                 MissionWire: { active: false, placedBy: null },
                 MissionReactor: { active: false, placedBy: null },
-                MissionAdmin: { active: false, placedBy: null }
+                MissionAdmin: { active: false, placedBy: null },
+                MissionOxygen: { active: false, placedBy: null }
             },
             deathLogs: []
         };
@@ -545,6 +552,8 @@
         let mqttClient = null;
         let activePlayer = null; 
         let gameState = "LOBBY"; // LOBBY, IN_GAME, GAMEOVER
+        // 🆕 [DAY/NIGHT CYCLE]: DAY = missions & traps allowed, NIGHT = locked, vote-only
+        let dayNightPhase = "DAY";
         let webNfcSupported = false;
         let isMuted = false;
         let audioCtx = null;
@@ -563,8 +572,26 @@
         let playerSequence = [];
         let simonRound = 0; // 🎚️ [DIFFICULTY UP]: tracks how many rounds cleared this mission attempt
         const SIMON_TOTAL_ROUNDS = 3;
+        const SIMON_TOTAL_ROUNDS_IMPOSTOR = 1; // 🆕 [IMPOSTOR DECOY MISSION]: eased target
+        let simonRoundTarget = SIMON_TOTAL_ROUNDS; // set fresh each time loadReactorMission() runs
         let adminRound = 0; // 🎚️ [DIFFICULTY UP]: tracks card-swipe rounds cleared this mission attempt
         const ADMIN_TOTAL_ROUNDS = 3;
+        const ADMIN_TOTAL_ROUNDS_IMPOSTOR = 1; // 🆕 [IMPOSTOR DECOY MISSION]: eased target
+        let adminRoundTarget = ADMIN_TOTAL_ROUNDS; // set fresh each time loadAdminMission() runs
+        // 🆕 [NEW MISSION]: Oxygen Generator Room — memorize a number code then enter it in order
+        let oxygenRound = 0;
+        const OXYGEN_TOTAL_ROUNDS = 3;
+        const OXYGEN_TOTAL_ROUNDS_IMPOSTOR = 1; // 🆕 [IMPOSTOR DECOY MISSION]: eased target
+        let oxygenRoundTarget = OXYGEN_TOTAL_ROUNDS; // set fresh each time loadOxygenMission() runs
+        let oxygenCode = [];
+        let oxygenInput = [];
+        // 🆕 [TRAP COOLDOWN]: Impostor must wait this long after planting a trap before planting another
+        const TRAP_COOLDOWN_SEC = 40;
+        let trapCooldownUntil = 0; // epoch ms; 0 means no cooldown active
+        // 🆕 [IMPOSTOR DECOY MISSION]: when set, the current mission-arena session is the impostor
+        // disguising as a crewmate — success plants a trap at this station instead of counting toward repairs.
+        // null = normal crewmate repair session.
+        let impostorDecoyStationId = null;
         let swipeStart = 0;
 
         // Helper to map system station names to Korean
@@ -572,7 +599,8 @@
             const map = {
                 "MissionWire": "⚡ 전기 배선실",
                 "MissionReactor": "🔮 원자로실",
-                "MissionAdmin": "📇 관리실 데스크"
+                "MissionAdmin": "📇 관리실 데스크",
+                "MissionOxygen": "🫧 산소 발생기실"
             };
             return map[stationId] || stationId;
         }
@@ -859,6 +887,13 @@
                     gameState = 'IN_GAME';
                     config.missions = data.missions;
                     config.players = data.players;
+                    // 🆕 [TRAP COOLDOWN]: Clear any leftover cooldown from a previous round
+                    trapCooldownUntil = 0;
+                    // 🆕 [IMPOSTOR DECOY MISSION]: Clear any leftover decoy-mission state from a previous round
+                    impostorDecoyStationId = null;
+                    // 🆕 [DAY/NIGHT CYCLE]: fresh round always starts in DAY
+                    dayNightPhase = "DAY";
+                    document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
                     applyGameStateTransitionUI();
                     break;
 
@@ -902,11 +937,20 @@
 
                 case 'PHASE_CHANGE':
                     if (data.phase === 'NIGHT') {
+                        dayNightPhase = "NIGHT";
                         document.getElementById('mobile-screen').classList.add('brightness-[0.25]');
-                        showSystemAlert("🌙 함선에 밤(소등)이 선언되었습니다. 고개를 숙이고 조용히 대기하십시오.", "error");
+                        showSystemAlert("🌙 함선에 밤이 선언되었습니다. 미션/덫 설치가 잠겼습니다. 모여서 투표를 진행하세요.", "error");
                     } else {
+                        dayNightPhase = "DAY";
                         document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
-                        showSystemAlert("☀️ 아침이 밝았습니다! 상황판을 확인하고 자유 토론을 진행하세요.", "info");
+                        showSystemAlert("☀️ 낮이 밝았습니다! 미션 수행과 덫 설치가 다시 가능합니다.", "info");
+                    }
+                    // 🆕 [DAY/NIGHT CYCLE]: Reuse the same UI updater so the GM status readout always matches
+                    // (applyGameStateTransitionUI already calls updatePlayerConsoleView() when activePlayer is set)
+                    if (gameState === "IN_GAME") {
+                        applyGameStateTransitionUI();
+                    } else if (activePlayer) {
+                        updatePlayerConsoleView();
                     }
                     break;
 
@@ -997,11 +1041,13 @@
             config.traps = {
                 MissionWire: { active: false, placedBy: null },
                 MissionReactor: { active: false, placedBy: null },
-                MissionAdmin: { active: false, placedBy: null }
+                MissionAdmin: { active: false, placedBy: null },
+                MissionOxygen: { active: false, placedBy: null }
             };
             config.deathLogs = [];
 
             gameState = "IN_GAME";
+            dayNightPhase = "DAY"; // 🆕 [DAY/NIGHT CYCLE]: fresh round always starts in DAY
             applyGameStateTransitionUI();
             renderSimulatedPlayersDock();
             updateDeathLogsUI();
@@ -1024,9 +1070,16 @@
                 lobbyScreen.classList.add('hidden');
                 gameScreen.classList.remove('hidden');
                 overScreen.classList.add('hidden');
-                
-                document.getElementById('gm-game-state').textContent = "실시간 수리 진행 중";
-                document.getElementById('gm-game-state').className = "text-emerald-400 font-bold uppercase text-[10px]";
+
+                // 🆕 [DAY/NIGHT CYCLE]: Status readout follows the current phase, not a fixed "in progress" label
+                const gmStateEl = document.getElementById('gm-game-state');
+                if (dayNightPhase === "NIGHT") {
+                    gmStateEl.textContent = "🌙 밤 — 투표 진행 중";
+                    gmStateEl.className = "text-rose-400 font-bold uppercase text-[10px]";
+                } else {
+                    gmStateEl.textContent = "☀️ 낮 — 실시간 수리 진행 중";
+                    gmStateEl.className = "text-emerald-400 font-bold uppercase text-[10px]";
+                }
 
                 document.getElementById('gm-master-actions').classList.remove('hidden');
                 document.getElementById('gm-lobby-actions').classList.add('hidden');
@@ -1087,7 +1140,8 @@
             config.traps = {
                 MissionWire: { active: false, placedBy: null },
                 MissionReactor: { active: false, placedBy: null },
-                MissionAdmin: { active: false, placedBy: null }
+                MissionAdmin: { active: false, placedBy: null },
+                MissionOxygen: { active: false, placedBy: null }
             };
             config.deathLogs = [];
             closeCorpseBroadcast();
@@ -1286,15 +1340,13 @@
                 roleBadge.className = "text-xs font-black scifi-font text-red-500 animate-pulse";
                 activeIcon.textContent = "😈";
                 activeTitle.innerHTML = `<span class="text-red-500 font-extrabold text-base">당신은 임포스터입니다!</span>`;
-                activeDesc.innerHTML = `정체를 숨기고 크루원인 척 행동하세요.<br><br><strong class="text-red-400">공격 방법 ①(직접 암살):</strong> 살아있는 크루원의 명찰(NFC)을 직접 태그하면 그 자리에서 즉시 제거됩니다.<br><br><strong class="text-red-400">공격 방법 ②(덫 설치):</strong> 미션 구역 스티커(전기 배선실 / 원자로실 / 관리실 데스크) 중 한 곳에 태그하면 그 구역에 보이지 않는 덫이 설치되고, 이후 그 구역을 태그하는 크루원이 자동으로 즉시 사망합니다. (한 번에 한 구역만 오염 가능)`;
-                document.getElementById('impostor-kill-btn').style.display = "flex";
+                activeDesc.innerHTML = `정체를 숨기고 크루원인 척 행동하세요.<br><br><strong class="text-red-400">공격 방법(위장 보수 후 덫 설치):</strong> 미션 구역 스티커(전기 배선실 / 원자로실 / 관리실 데스크 / 산소 발생기실) 중 한 곳에 태그하면 크루원과 같은(단, 더 쉬운) 미니게임이 뜹니다. 성공하면 그 구역에 보이지 않는 덫이 설치되고, 이후 그 구역을 태그하는 크루원이 자동으로 즉시 사망합니다. 실패해도 재시도 대기시간은 그대로 소모됩니다. (시도 후 ${TRAP_COOLDOWN_SEC}초 동안 재시도 불가)`;
             } else {
                 roleBadge.textContent = "크루원 (Crewmate)";
                 roleBadge.className = "text-xs font-black scifi-font text-emerald-400";
                 activeIcon.textContent = "👨‍🚀";
                 activeTitle.innerHTML = `<span class="text-emerald-400 font-extrabold text-base">당신은 크루원입니다!</span>`;
                 activeDesc.textContent = "우주선 곳곳의 미션 구역(NFC)에 방문하여 스마트폰을 태그한 뒤 할당된 임무를 조속히 정비하여 보수 완수도를 100%까지 채우십시오.";
-                document.getElementById('impostor-kill-btn').style.display = "none";
             }
 
             // Seal secret role back to lobby after 6 seconds
@@ -1306,59 +1358,25 @@
             }, 6000);
         }
 
-        // Active tagging during gameplay
+        // Active tagging during gameplay — view-swap only (direct badge assassination removed; trap-planting is the sole attack method)
         function handleActiveGamePlayerBadgeScan(scannedPlayerId) {
             const scannedPlayer = config.players.find(p => p.id === scannedPlayerId);
             if (!scannedPlayer) return;
 
-            // Scenario A: Scanned device user is an alive Impostor -> Kills the victim physically! (Fallback)
-            if (activePlayer && activePlayer.role === "IMPOSTOR" && activePlayer.isAlive) {
-                if (scannedPlayer.id === activePlayer.id) {
-                    showSystemAlert("자신의 NFC 배지는 자해할 수 없습니다.", "error");
-                    return;
-                }
-                if (!scannedPlayer.isAlive) {
-                    showSystemAlert("이미 추방(제거)된 상태의 대원 명찰입니다.", "error");
-                    return;
-                }
-                if (scannedPlayer.role === "IMPOSTOR") {
-                    showSystemAlert("동료 임포스터는 지목할 수 없습니다.", "error");
-                    return;
-                }
-
-                // 🛡️ [FIX]: No GM gatekeeper needed — this device processes the kill directly and broadcasts
-                scannedPlayer.isAlive = false;
-                const log = {
-                    victim: scannedPlayer.name,
-                    location: "근거리 물리 암살",
-                    time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                };
-                config.deathLogs.unshift(log);
-
-                publishSyncEvent('PLAYER_DIED', {
-                    victimId: scannedPlayer.id,
-                    location: "근거리 물리 암살",
-                    deathLogs: config.deathLogs,
-                    traps: config.traps
-                });
-
-                showSystemAlert(`😈 [근거리 암살 성공] ${scannedPlayer.name} 님을 제거했습니다!`, "error");
-                SoundSynth.playScream();
-                triggerCorpseBroadcast({ victim: scannedPlayer.name, location: "근거리 물리 암살" });
-                updateDeathLogsUI();
-                renderSimulatedPlayersDock();
-                checkGameEndConditions();
-            } else {
-                // Scenario B: Ordinary swap device focus to scanned player badge
-                activePlayer = scannedPlayer;
-                localStorage.setItem('nfc_active_player_id', scannedPlayer.id);
-                updatePlayerConsoleView();
-                showSystemAlert("단말기가 대원 [" + scannedPlayer.name + "] 님의 시야 및 상태 모드로 자동 전환되었습니다.", "info");
-            }
+            activePlayer = scannedPlayer;
+            localStorage.setItem('nfc_active_player_id', scannedPlayer.id);
+            updatePlayerConsoleView();
+            showSystemAlert("단말기가 대원 [" + scannedPlayer.name + "] 님의 시야 및 상태 모드로 자동 전환되었습니다.", "info");
         }
 
         // Handles Station Trap placement and detection mechanics!
         function handleMissionTagScan(stationId) {
+            // 🆕 [DAY/NIGHT CYCLE]: Missions and trap-planting are locked during NIGHT — vote is the only option
+            if (dayNightPhase === "NIGHT") {
+                showSystemAlert("🌙 지금은 밤입니다. 미션 수행과 덫 설치가 잠겨 있습니다. 모여서 투표를 진행하세요.", "error");
+                return;
+            }
+
             // 🧪 [SANDBOX GUEST EXCEPTION]: If no player is selected (null activePlayer / Spectator mode), allow direct mission entry!
             if (!activePlayer) {
                 openMissionArena(stationId);
@@ -1366,21 +1384,31 @@
                 return;
             }
 
-            // IMPOSTOR: Plant a Trap
+            // IMPOSTOR: Must first pass a disguised version of the mission mini-game before a trap is planted
             // 🛡️ [FIX]: No GM gatekeeper needed — this device processes its own action and broadcasts the result
             if (activePlayer.role === "IMPOSTOR" && activePlayer.isAlive) {
+                // 🆕 [TRAP COOLDOWN]: Block re-planting until TRAP_COOLDOWN_SEC has passed since the last attempt
+                const now = Date.now();
+                if (now < trapCooldownUntil) {
+                    const remainingSec = Math.ceil((trapCooldownUntil - now) / 1000);
+                    showSystemAlert(`⏳ 덫 재설치 대기 중입니다. ${remainingSec}초 후 다시 시도하세요.`, "error");
+                    return;
+                }
+
                 if (config.traps[stationId].active) {
                     showSystemAlert(`이미 이곳 ${getStationName(stationId)} 구역에 안전장치를 해제한 덫이 매설되어 있습니다. 다른 곳을 오염시키세요.`, "error");
                     return;
                 }
 
-                config.traps[stationId] = { active: true, placedBy: activePlayer.id };
-                publishSyncEvent('TRAP_PLACED', {
-                    stationId: stationId,
-                    placedBy: activePlayer.id
-                });
+                // 🆕 [IMPOSTOR DECOY MISSION]: Cooldown starts the moment the impostor attempts this —
+                // so a failed disguise mission still burns the cooldown and must be retried after it passes.
+                trapCooldownUntil = now + (TRAP_COOLDOWN_SEC * 1000);
 
-                showSystemAlert(`😈 [구역 오염 완료] ${getStationName(stationId)}에 오염 지뢰를 가설했습니다!`, "error");
+                // 🆕 [IMPOSTOR DECOY MISSION]: Enter the same mini-game as crewmates (eased difficulty) as a disguise.
+                // The trap is only planted if the impostor actually clears it — see handleMissionCompletion().
+                impostorDecoyStationId = stationId;
+                openMissionArena(stationId);
+                showSystemAlert(`😈 위장 보수 작업 진입. 미니게임을 성공해야 ${getStationName(stationId)}에 덫이 설치됩니다.`, "error");
                 return;
             }
 
@@ -1455,7 +1483,6 @@
                 activeIcon.textContent = "👻";
                 activeTitle.innerHTML = `<span class="text-red-500 font-extrabold text-base">당신은 오염 처단되었습니다!</span>`;
                 activeDesc.innerHTML = `<span class="text-xs text-slate-400">구역에 매설되어 있던 임포스터의 덫에 기계가 연동 오염되어 물리 사망 판정을 받았습니다. 몸조심 하십시오. 영혼 상태에서도 미션을 찍어 복구를 보조할 수 있습니다.</span>`;
-                document.getElementById('impostor-kill-btn').style.display = "none";
                 updateMissionGlobalProgressBar();
                 return;
             }
@@ -1464,16 +1491,14 @@
                 roleBadge.textContent = "임포스터 (Impostor)";
                 roleBadge.className = "text-xs font-black scifi-font text-red-500";
                 activeIcon.textContent = "😈";
-                activeTitle.innerHTML = `<span class="text-red-400 font-bold text-xs">구역 덫 설치 모드 가동 중</span>`;
-                activeDesc.innerHTML = `<strong class="text-red-400">전기 배선실 / 원자로실 / 관리실 데스크</strong> 중 한 곳의 NFC 스티커를 자신의 단말기로 태그하면 그 구역에 <strong class="text-red-400">오염 지뢰(덫)</strong>가 매복 매설됩니다. 이후 그 구역을 태그한 크루원은 즉시 사망 처리됩니다. (한 번에 한 구역만 오염 가능)`;
-                document.getElementById('impostor-kill-btn').style.display = "flex";
+                activeTitle.innerHTML = `<span class="text-red-400 font-bold text-xs">위장 보수 모드 가동 중</span>`;
+                activeDesc.innerHTML = `<strong class="text-red-400">전기 배선실 / 원자로실 / 관리실 데스크 / 산소 발생기실</strong> 중 한 곳의 NFC 스티커를 태그하면 위장용 미니게임이 뜹니다. 성공하면 그 구역에 <strong class="text-red-400">오염 지뢰(덫)</strong>가 매복 매설됩니다. 이후 그 구역을 태그한 크루원은 즉시 사망 처리됩니다. (시도 후 ${TRAP_COOLDOWN_SEC}초 동안 재시도 불가, 실패해도 대기시간 소모)`;
             } else {
                 roleBadge.textContent = "크루원 (Crewmate)";
                 roleBadge.className = "text-xs font-black scifi-font text-emerald-400";
                 activeIcon.textContent = "👨‍🚀";
                 activeTitle.innerHTML = `<span class="text-slate-200 font-bold text-xs">시설 안전 복구 명령 활성</span>`;
-                activeDesc.textContent = "각 부스에 지정 부착된 3종의 전자기실 NFC 스티커를 태그하여 미니 보수 작업을 진행해 게이지를 꽉 채우십시오. 오염된 장소를 찍지 않게 주의하세요!";
-                document.getElementById('impostor-kill-btn').style.display = "none";
+                activeDesc.textContent = "각 부스에 지정 부착된 4종의 전자기실 NFC 스티커를 태그하여 미니 보수 작업을 진행해 게이지를 꽉 채우십시오. 오염된 장소를 찍지 않게 주의하세요!";
             }
 
             updateMissionGlobalProgressBar();
@@ -1565,37 +1590,6 @@
         }
 
         // Impostor kill simulated button helper
-        function openImpostorKillAction() {
-            if (activePlayer.role !== "IMPOSTOR" || !activePlayer.isAlive) return;
-
-            const liveCrews = config.players.filter(p => p.role !== "IMPOSTOR" && p.isAlive);
-            if (liveCrews.length === 0) return;
-
-            let html = `<div class="space-y-1.5 w-full text-left">
-                <span class="text-[9px] text-slate-400 block mb-1">근거리 수사 대원 1명을 즉각 현장 추방 처리합니다. (기밀 유지)</span>
-                <div class="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto bg-slate-950 p-1.5 rounded border border-slate-800">`;
-            
-            liveCrews.forEach(c => {
-                html += `
-                    <button onclick="executeSimulatedKill('${c.id}')" class="bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-200 py-1 px-2 rounded text-[10px] flex justify-between items-center transition truncate">
-                        <span>${c.name}</span>
-                        <span class="scale-90 text-red-400">☠️ 강제제외</span>
-                    </button>
-                `;
-            });
-            html += `</div></div>`;
-
-            const desc = document.getElementById('game-active-desc');
-            desc.innerHTML = html;
-        }
-
-        function executeSimulatedKill(targetId) {
-            simulateNfcScan(targetId);
-            setTimeout(() => {
-                updatePlayerConsoleView();
-            }, 800);
-        }
-
         // Realtime balance check for Win/Loss
         function checkGameEndConditions() {
             const aliveImpostors = config.players.filter(p => p.role === "IMPOSTOR" && p.isAlive).length;
@@ -1681,10 +1675,22 @@
                 traps: config.traps
             });
 
-            showSystemAlert(`🗳️ 투표 결과, ${ejected.name} 님이 추방되었습니다.`, "error");
             SoundSynth.playError();
             updateDeathLogsUI();
             renderSimulatedPlayersDock();
+
+            // 🆕 [DAY/NIGHT CYCLE]: Only return to DAY if the game isn't over — avoids a flicker before the gameover screen
+            const aliveImpostorsAfter = config.players.filter(p => p.role === "IMPOSTOR" && p.isAlive).length;
+            const aliveCrewmatesAfter = config.players.filter(p => p.role !== "IMPOSTOR" && p.isAlive).length;
+            const gameIsOver = (aliveImpostorsAfter === 0) || (aliveImpostorsAfter >= aliveCrewmatesAfter);
+
+            if (gameIsOver) {
+                showSystemAlert(`🗳️ 투표 결과, ${ejected.name} 님이 추방되었습니다.`, "error");
+            } else {
+                publishSyncEvent('PHASE_CHANGE', { phase: 'MORNING' });
+                showSystemAlert(`🗳️ 투표 결과, ${ejected.name} 님이 추방되었습니다. 낮으로 전환됩니다.`, "error");
+            }
+
             checkGameEndConditions();
         }
 
@@ -1695,7 +1701,9 @@
                 return;
             }
             publishSyncEvent('PHASE_CHANGE', { phase: 'NIGHT' });
-            showSystemAlert("함선에 밤(소등)이 성공적으로 선언되었습니다.", "info");
+            showSystemAlert("🌙 함선에 밤이 선언되었습니다. 미션/덫 설치가 잠겼습니다 — 투표를 진행하세요.", "info");
+            // 🆕 [DAY/NIGHT CYCLE]: Auto-open the vote panel for the GM right away
+            openVoteEjectPanel();
         }
 
         // Master Trigger Morning
@@ -1704,55 +1712,35 @@
                 showSystemAlert("게임이 진행 중일 때만 아침을 선언할 수 있습니다.", "error");
                 return;
             }
+            closeVoteEjectPanel();
             publishSyncEvent('PHASE_CHANGE', { phase: 'MORNING' });
             showSystemAlert("함선에 아침이 성공적으로 선언되었습니다.", "info");
         }
 
-        // MINI GAME ARENA LOGIC
-        function openMissionArena(stationId) {
-            // Switch state to active mini game
-            const screenGame = document.getElementById('screen-game');
-            const screenMission = document.getElementById('screen-mission');
-            const currentName = document.getElementById('current-mission-name');
-            const currentDesc = document.getElementById('current-mission-desc');
-            const stationBadge = document.getElementById('mission-station-id');
-            const arena = document.getElementById('mission-game-arena');
-
-            screenGame.classList.add('hidden');
-            screenMission.classList.remove('hidden');
-            
-            // 🧪 [SANDBOX GUEST DOM FIX]: Safely hide lobby screen when testing in LOBBY state!
-            const screenLobby = document.getElementById('screen-lobby');
-            if (screenLobby) screenLobby.classList.add('hidden');
-
-            stationBadge.textContent = stationId === "MissionWire" ? "전기 배선실 (A1)" : stationId === "MissionReactor" ? "원자로실 (B3)" : "관리실 데스크 (C2)";
-
-            // Load selected game
-            if (stationId === "MissionWire") {
-                currentName.textContent = "⚡ 전기 배선 매칭 수리";
-                currentDesc.textContent = "좌측 단자가 깜빡이면 알맞은 색 단자를 찾아 연결해 주세요.";
-                loadWireMission(arena);
-            } else if (stationId === "MissionReactor") {
-                currentName.textContent = "🔮 원자로 동력 그리드 보수";
-                currentDesc.textContent = "원자로에서 방출한 깜빡임 타일의 일시적 순서를 외워 그대로 모사하십시오.";
-                loadReactorMission(arena);
-            } else if (stationId === "MissionAdmin") {
-                currentName.textContent = "📇 보안 관리실 단말기 인증";
-                currentDesc.textContent = "보안 마그네틱 슬라이더 카드를 너무 빠르거나 느리지 않은 속도로 긁어 넘기세요.";
-                loadAdminMission(arena);
-            }
-        }
+        // MINI GAME ARENA LOGIC: see the fuller openMissionArena() definition further below
+        // (kept as a single source of truth — duplicate removed to avoid drift between the two)
 
         // Game 1: Wire Matcher
+        // 🎚️ [DIFFICULTY UP v2]: 5 pairs → 6 pairs, plus an 18s time limit (fail = retry the whole board)
+        const WIRE_PAIR_COUNT = 6;
+        // 🆕 [IMPOSTOR DECOY MISSION]: eased pair count when an impostor is using this as a disguise
+        const WIRE_PAIR_COUNT_IMPOSTOR = 3;
+        const WIRE_TIME_LIMIT_SEC = 18;
+        let wireTimerInterval = null;
+        let wireRequiredPairs = WIRE_PAIR_COUNT; // set fresh each time loadWireMission() runs
+
         function loadWireMission(container) {
-            // 🎚️ [DIFFICULTY UP]: 3 pairs → 5 pairs, colors shuffled fresh each time (no more memorizable fixed order)
-            const wireColors = [
+            wireRequiredPairs = impostorDecoyStationId ? WIRE_PAIR_COUNT_IMPOSTOR : WIRE_PAIR_COUNT;
+            const allWireColors = [
                 { key: 'red', label: 'RED', cls: 'bg-red-600' },
                 { key: 'blue', label: 'BLUE', cls: 'bg-blue-600' },
                 { key: 'yellow', label: 'YELLOW', cls: 'bg-yellow-500' },
                 { key: 'green', label: 'GREEN', cls: 'bg-emerald-600' },
-                { key: 'purple', label: 'PURPLE', cls: 'bg-purple-600' }
+                { key: 'purple', label: 'PURPLE', cls: 'bg-purple-600' },
+                { key: 'orange', label: 'ORANGE', cls: 'bg-orange-500' }
             ];
+            // 🆕 [IMPOSTOR DECOY MISSION]: only show as many color pairs as required this round
+            const wireColors = [...allWireColors].sort(() => Math.random() - 0.5).slice(0, wireRequiredPairs);
             const leftOrder = [...wireColors].sort(() => Math.random() - 0.5);
             const rightOrder = [...wireColors].sort(() => Math.random() - 0.5);
             completedConnections = 0;
@@ -1762,19 +1750,54 @@
             ).join('');
 
             container.innerHTML = `
-                <div class="flex justify-between items-center h-full space-x-6 py-2">
-                    <div class="flex flex-col justify-around h-full space-y-2.5" id="wire-left-side">
-                        ${renderSide(leftOrder, 'left')}
+                <div class="flex flex-col h-full">
+                    <div class="text-center mb-1">
+                        <span id="wire-timer" class="text-amber-400 font-bold text-xs">⏱ ${WIRE_TIME_LIMIT_SEC}초</span>
+                        ${impostorDecoyStationId ? '<span class="block text-[9px] text-red-400 font-bold">😈 위장 보수 작업 (간이 모드)</span>' : ''}
                     </div>
-                    <div class="flex-1 flex flex-col justify-center items-center">
-                        <span class="text-slate-500 text-[9px] text-center">전기 케이블 연동 단자</span>
-                        <div id="wire-connect-line" class="text-cyan-400 font-bold text-[10px] mt-2 text-center">양쪽의 올바른 짝을 맞추세요 (0/5)</div>
-                    </div>
-                    <div class="flex flex-col justify-around h-full space-y-2.5" id="wire-right-side">
-                        ${renderSide(rightOrder, 'right')}
+                    <div class="flex justify-between items-center flex-1 space-x-6 py-1">
+                        <div class="flex flex-col justify-around h-full space-y-2" id="wire-left-side">
+                            ${renderSide(leftOrder, 'left')}
+                        </div>
+                        <div class="flex-1 flex flex-col justify-center items-center">
+                            <span class="text-slate-500 text-[9px] text-center">전기 케이블 연동 단자</span>
+                            <div id="wire-connect-line" class="text-cyan-400 font-bold text-[10px] mt-2 text-center">양쪽의 올바른 짝을 맞추세요 (0/${wireRequiredPairs})</div>
+                        </div>
+                        <div class="flex flex-col justify-around h-full space-y-2" id="wire-right-side">
+                            ${renderSide(rightOrder, 'right')}
+                        </div>
                     </div>
                 </div>
             `;
+
+            startWireTimer(container);
+        }
+
+        function startWireTimer(container) {
+            let remaining = WIRE_TIME_LIMIT_SEC;
+            if (wireTimerInterval) clearInterval(wireTimerInterval);
+            wireTimerInterval = setInterval(() => {
+                remaining--;
+                const timerEl = document.getElementById('wire-timer');
+                if (timerEl) {
+                    timerEl.textContent = `⏱ ${remaining}초`;
+                    if (remaining <= 5) timerEl.classList.add('text-red-500', 'animate-pulse');
+                }
+                if (remaining <= 0) {
+                    clearInterval(wireTimerInterval);
+                    SoundSynth.playError();
+                    // 🆕 [IMPOSTOR DECOY MISSION]: a timed-out disguise attempt is a failure — exit instead of retrying,
+                    // since the cooldown is already burning and the impostor should be free to move on
+                    if (impostorDecoyStationId) {
+                        showSystemAlert("⏱ 위장 보수 작업 시간 초과! 덫을 설치하지 못했습니다.", "error");
+                        impostorDecoyStationId = null;
+                        exitMission();
+                    } else {
+                        showSystemAlert("⏱ 제한시간 초과! 배선판을 새로 재가동합니다.", "error");
+                        loadWireMission(container);
+                    }
+                }
+            }, 1000);
         }
 
         // Select Wire interactive match
@@ -1789,7 +1812,7 @@
                 if (selectedWireLeft === color) {
                     completedConnections++;
                     SoundSynth.playBeep(600, 'sine', 0.1);
-                    document.getElementById('wire-connect-line').textContent = `${completedConnections}/5 연결 됨!`;
+                    document.getElementById('wire-connect-line').textContent = `${completedConnections}/${wireRequiredPairs} 연결 됨!`;
                     element.setAttribute('disabled', 'true');
                     element.classList.add('opacity-30');
                     
@@ -1804,8 +1827,9 @@
 
                     selectedWireLeft = null;
 
-                    if (completedConnections >= 5) {
+                    if (completedConnections >= wireRequiredPairs) {
                         completedConnections = 0;
+                        if (wireTimerInterval) clearInterval(wireTimerInterval);
                         handleMissionCompletion();
                     }
                 } else {
@@ -1822,6 +1846,7 @@
         // 🎚️ [DIFFICULTY UP]: 3 steps → 5~6 steps, speeds up each round, must clear 3 rounds in a row to finish
         function loadReactorMission(container) {
             simonRound = 0;
+            simonRoundTarget = impostorDecoyStationId ? SIMON_TOTAL_ROUNDS_IMPOSTOR : SIMON_TOTAL_ROUNDS;
             startSimonRound(container);
         }
 
@@ -1833,7 +1858,8 @@
 
             container.innerHTML = `
                 <div class="flex flex-col items-center justify-center space-y-3">
-                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${simonRound} / ${SIMON_TOTAL_ROUNDS}</span>
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${simonRound} / ${simonRoundTarget}</span>
+                    ${impostorDecoyStationId ? '<span class="text-[9px] text-red-400 font-bold">😈 위장 보수 작업 (간이 모드)</span>' : ''}
                     <span class="text-[9px] text-slate-500 uppercase tracking-wider font-bold">깜빡이는 순서를 완벽하게 모사하십시오 (${sequenceLength}단계)</span>
                     <div class="grid grid-cols-2 gap-2 w-28 h-28">
                         <button onclick="pressSimonGrid(0)" id="simon-0" class="w-full h-full bg-slate-800 rounded border border-slate-700 active:bg-cyan-500 transition-colors"></button>
@@ -1851,6 +1877,7 @@
         // 🎚️ [DIFFICULTY UP]: must clear ADMIN_TOTAL_ROUNDS in a row, valid timing window narrows each round
         function loadAdminMission(container) {
             adminRound = 0;
+            adminRoundTarget = impostorDecoyStationId ? ADMIN_TOTAL_ROUNDS_IMPOSTOR : ADMIN_TOTAL_ROUNDS;
             startAdminRound(container);
         }
 
@@ -1858,7 +1885,8 @@
             adminRound++;
             container.innerHTML = `
                 <div class="flex flex-col justify-around items-center h-full space-y-3 py-2">
-                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${adminRound} / ${ADMIN_TOTAL_ROUNDS}</span>
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${adminRound} / ${adminRoundTarget}</span>
+                    ${impostorDecoyStationId ? '<span class="text-[9px] text-red-400 font-bold">😈 위장 보수 작업 (간이 모드)</span>' : ''}
                     <span class="text-[9px] text-slate-500 uppercase">보안 리더기 수평 스와이프</span>
                     
                     <!-- ID Card Drag Slot -->
@@ -1912,8 +1940,8 @@
                 return;
             }
             if (playerSequence.length === simonSequence.length) {
-                // 🎚️ [DIFFICULTY UP]: must clear SIMON_TOTAL_ROUNDS in a row to finish the mission
-                if (simonRound >= SIMON_TOTAL_ROUNDS) {
+                // 🎚️ [DIFFICULTY UP]: must clear simonRoundTarget in a row to finish the mission
+                if (simonRound >= simonRoundTarget) {
                     handleMissionCompletion();
                 } else {
                     showSystemAlert(`✅ 라운드 ${simonRound} 통과! 다음 라운드를 준비하세요.`, "info");
@@ -1952,7 +1980,7 @@
             } else {
                 f.className = "text-[10px] text-emerald-400 font-bold";
                 f.textContent = `인증 성공! (${diff}ms)`;
-                if (adminRound >= ADMIN_TOTAL_ROUNDS) {
+                if (adminRound >= adminRoundTarget) {
                     setTimeout(() => {
                         handleMissionCompletion();
                     }, 500);
@@ -1964,7 +1992,110 @@
             }
         }
 
+        // Game 4: Oxygen Generator Vault — memorize a number code, then enter it in the same order
+        // 🆕 [NEW MISSION]: round 1: 4-digit code shown 3.0s, round 2: 5-digit shown 2.4s, round 3: 6-digit shown 1.8s
+        function loadOxygenMission(container) {
+            oxygenRound = 0;
+            oxygenRoundTarget = impostorDecoyStationId ? OXYGEN_TOTAL_ROUNDS_IMPOSTOR : OXYGEN_TOTAL_ROUNDS;
+            startOxygenRound(container);
+        }
+
+        function startOxygenRound(container) {
+            oxygenRound++;
+            const codeLength = 3 + oxygenRound; // round 1: 4, round 2: 5, round 3: 6
+            const memorizeSec = Math.max(1.8, 3.0 - (oxygenRound - 1) * 0.6);
+            oxygenCode = Array.from({ length: codeLength }, () => Math.floor(Math.random() * 10));
+            oxygenInput = [];
+
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center space-y-3 h-full">
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${oxygenRound} / ${oxygenRoundTarget}</span>
+                    ${impostorDecoyStationId ? '<span class="text-[9px] text-red-400 font-bold">😈 위장 보수 작업 (간이 모드)</span>' : ''}
+                    <span class="text-[9px] text-slate-500 uppercase tracking-wider font-bold">표시되는 ${codeLength}자리 코드를 암기하십시오</span>
+                    <div id="oxygen-code-display" class="text-3xl font-black text-emerald-400 tracking-[0.3em] scifi-font">
+                        ${oxygenCode.join(' ')}
+                    </div>
+                    <div id="oxygen-input-display" class="text-lg font-bold text-slate-600 tracking-[0.3em] hidden">
+                        ${'_ '.repeat(codeLength)}
+                    </div>
+                    <div id="oxygen-keypad" class="hidden grid grid-cols-3 gap-1.5 w-36">
+                        ${[1,2,3,4,5,6,7,8,9].map(n =>
+                            `<button onclick="pressOxygenDigit(${n})" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded py-2 text-xs font-bold text-slate-200">${n}</button>`
+                        ).join('')}
+                        <button onclick="pressOxygenClear()" class="bg-rose-950 hover:bg-rose-900 border border-rose-800 rounded py-2 text-[9px] font-bold text-rose-300">초기화</button>
+                        <button onclick="pressOxygenDigit(0)" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded py-2 text-xs font-bold text-slate-200">0</button>
+                    </div>
+                </div>
+            `;
+
+            setTimeout(() => {
+                const display = document.getElementById('oxygen-code-display');
+                const inputDisplay = document.getElementById('oxygen-input-display');
+                const keypad = document.getElementById('oxygen-keypad');
+                if (!display) return; // mission was exited before timeout fired
+                display.classList.add('hidden');
+                inputDisplay.classList.remove('hidden');
+                keypad.classList.remove('hidden');
+            }, memorizeSec * 1000);
+        }
+
+        function pressOxygenDigit(digit) {
+            oxygenInput.push(digit);
+            SoundSynth.playBeep(500 + (digit * 30), 'sine', 0.08);
+
+            const idx = oxygenInput.length - 1;
+            if (oxygenInput[idx] !== oxygenCode[idx]) {
+                SoundSynth.playError();
+                showSystemAlert(`🔢 코드 불일치! 라운드 ${oxygenRound}부터 다시 암기하십시오.`, "error");
+                const arena = document.getElementById('mission-game-arena');
+                setTimeout(() => startOxygenRound(arena), 700);
+                return;
+            }
+
+            const inputDisplay = document.getElementById('oxygen-input-display');
+            if (inputDisplay) {
+                inputDisplay.textContent = oxygenInput.map(d => d).join(' ') + ' ' + '_ '.repeat(oxygenCode.length - oxygenInput.length);
+            }
+
+            if (oxygenInput.length === oxygenCode.length) {
+                if (oxygenRound >= oxygenRoundTarget) {
+                    handleMissionCompletion();
+                } else {
+                    showSystemAlert(`✅ 라운드 ${oxygenRound} 통과! 다음 코드를 준비하세요.`, "info");
+                    const arena = document.getElementById('mission-game-arena');
+                    setTimeout(() => startOxygenRound(arena), 900);
+                }
+            }
+        }
+
+        function pressOxygenClear() {
+            oxygenInput = [];
+            const inputDisplay = document.getElementById('oxygen-input-display');
+            if (inputDisplay) {
+                inputDisplay.textContent = '_ '.repeat(oxygenCode.length);
+            }
+            SoundSynth.playBeep(300, 'sine', 0.08);
+        }
+
         function handleMissionCompletion() {
+            // 🆕 [IMPOSTOR DECOY MISSION]: success here means "plant the trap", not "count toward repairs"
+            // (cooldown was already started the moment the impostor entered this mini-game, so no need to set it again)
+            if (impostorDecoyStationId) {
+                const stationId = impostorDecoyStationId;
+                impostorDecoyStationId = null;
+
+                SoundSynth.playSuccess();
+                config.traps[stationId] = { active: true, placedBy: activePlayer ? activePlayer.id : 'HOST' };
+                publishSyncEvent('TRAP_PLACED', {
+                    stationId: stationId,
+                    placedBy: activePlayer ? activePlayer.id : 'HOST'
+                });
+
+                showSystemAlert(`😈 [위장 성공] ${getStationName(stationId)}에 오염 지뢰를 가설했습니다! (다음 설치까지 ${TRAP_COOLDOWN_SEC}초 대기)`, "error");
+                exitMission();
+                return;
+            }
+
             SoundSynth.playSuccess();
             // 🛡️ [FIX]: This device increments its own local count and broadcasts the new total directly — no GM needed
             config.missions.completedCount++;
@@ -1991,7 +2122,13 @@
             
             // Show mission UI
             screenMission.classList.remove('hidden');
-            stationBadge.textContent = stationId === "MissionWire" ? "전기 배선실 (A1)" : stationId === "MissionReactor" ? "원자로실 (B3)" : "관리실 데스크 (C2)";
+            const stationBadgeMap = {
+                MissionWire: "전기 배선실 (A1)",
+                MissionReactor: "원자로실 (B3)",
+                MissionAdmin: "관리실 데스크 (C2)",
+                MissionOxygen: "산소 발생기실 (D4)"
+            };
+            stationBadge.textContent = stationBadgeMap[stationId] || stationId;
 
             // Load selected game
             if (stationId === "MissionWire") {
@@ -2006,11 +2143,25 @@
                 currentName.textContent = "📇 보안 관리실 단말기 인증";
                 currentDesc.textContent = "보안 마그네틱 슬라이더 카드를 너무 빠르거나 느리지 않은 속도로 긁어 넘기세요.";
                 loadAdminMission(arena);
+            } else if (stationId === "MissionOxygen") {
+                currentName.textContent = "🫧 산소 발생기 금고 해제";
+                currentDesc.textContent = "표시되는 숫자 패턴을 정확히 기억해 동일한 순서로 입력해 산소 공급을 복구하세요.";
+                loadOxygenMission(arena);
             }
         }
 
         // 🛡️ [VISIBILITY PATCH]: Return to lobby view if game hasn't started, or game view if in progress
         function exitMission() {
+            // 🛡️ [FIX]: Clear any running wire-mission countdown so it can't fire after leaving the mission screen
+            if (wireTimerInterval) {
+                clearInterval(wireTimerInterval);
+                wireTimerInterval = null;
+            }
+            // 🆕 [IMPOSTOR DECOY MISSION]: Manually exiting mid-attempt is a failure too — no trap is planted,
+            // but the cooldown started on entry keeps running (already burned, by design)
+            if (impostorDecoyStationId) {
+                impostorDecoyStationId = null;
+            }
             document.getElementById('screen-mission').classList.add('hidden');
             if (gameState === "LOBBY") {
                 document.getElementById('screen-lobby').classList.remove('hidden');
@@ -2075,7 +2226,8 @@
             const stations = [
                 { id: "MissionWire", label: "⚡ 전기 배선실 태그" },
                 { id: "MissionReactor", label: "🔮 원자로실 태그" },
-                { id: "MissionAdmin", label: "📇 관리실 데스크 태그" }
+                { id: "MissionAdmin", label: "📇 관리실 데스크 태그" },
+                { id: "MissionOxygen", label: "🫧 산소 발생기실 태그" }
             ];
 
             stations.forEach(s => {

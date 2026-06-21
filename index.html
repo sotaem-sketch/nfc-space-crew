@@ -1,0 +1,2355 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Space Crew - 대규모 실시간 오프라인 액션 서바이벌</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter & Orbitron for Sci-Fi vibe -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <!-- MQTT.js for Real-time Decentralized synchronization over WebSockets -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .scifi-font {
+            font-family: 'Orbitron', sans-serif;
+        }
+        /* Custom Glowing effects */
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+        }
+        .neon-glow-red {
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+        }
+        .neon-glow-green {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        /* Custom scrollbar for game list to maintain visual aesthetics */
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #06b6d4;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col overflow-hidden">
+
+    <!-- TOP NAVIGATION BAR (Optimized for Mobile viewports to prevent wrapping/overlapping) -->
+    <header class="bg-slate-900 border-b border-slate-800 px-4 lg:px-6 py-3 lg:py-4 flex flex-wrap gap-2 items-center justify-between shrink-0">
+        <div class="flex items-center space-x-2 lg:space-x-3">
+            <div class="w-7 h-7 lg:w-8 lg:h-8 rounded-lg bg-cyan-500 flex items-center justify-center neon-glow-cyan shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 lg:h-5 lg:w-5 text-slate-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 009 11a13.92 13.92 0 00-2.3-7.54l-.054-.09M12 11V3m0 8c0 3.517 1.009 6.799 2.753 9.571m3.44-2.04l-.054-.09A13.916 13.916 0 0015 11a13.92 13.92 0 002.3-7.54l.054-.09M12 11a3 3 0 110-6 3 3 0 010 6z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="scifi-font text-sm lg:text-xl font-black tracking-wider text-cyan-400">NFC SPACE CREW</h1>
+                <p class="text-[9px] lg:text-xs text-slate-400 hidden sm:block">대규모 오프라인 마피아 - 실시간 멀티 동기화</p>
+            </div>
+        </div>
+
+        <!-- Connection Status & View Mode Switchers -->
+        <div class="flex items-center gap-1.5 lg:gap-3 flex-wrap">
+            <div id="view-mode-controls" class="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-[10px] lg:text-xs shrink-0">
+                <button id="btn-mode-player" onclick="setViewMode('PLAYER')" class="px-2 py-1 rounded-md text-slate-400 font-semibold transition">📱 플레이어</button>
+                <button id="btn-mode-gm" onclick="setViewMode('GM')" class="px-2 py-1 rounded-md text-cyan-400 font-bold transition">👑 GM 상황실</button>
+            </div>
+            
+            <div id="nfc-status-badge" class="flex items-center space-x-1.5 px-2 py-1 rounded-full bg-slate-800 text-[10px] lg:text-xs border border-amber-500/10 shrink-0">
+                <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="nfc-status-dot"></span>
+                <span class="text-slate-300" id="nfc-status-text">동기화 대기 중</span>
+            </div>
+            <button onclick="toggleSetupModal(true)" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 px-2 py-1 rounded-lg text-[10px] lg:text-xs font-bold transition flex items-center gap-1 neon-glow-cyan shrink-0">
+                ⚙️ 세팅 관리
+            </button>
+            <button onclick="leaveRoom()" class="text-[10px] lg:text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded-lg border border-slate-700 shrink-0">채널 이동</button>
+        </div>
+    </header>
+
+    <!-- REALTIME BROADCAST ALIGNMENT BANNER (For corpse discovery alerts) -->
+    <div id="corpse-broadcast-banner" class="hidden bg-red-950 border-b-2 border-red-500 text-white px-6 py-3.5 flex items-center justify-between shrink-0 animate-pulse neon-glow-red z-30">
+        <div class="flex items-center space-x-3">
+            <span class="text-2xl">🚨</span>
+            <div>
+                <h3 class="scifi-font font-black text-sm tracking-wide text-red-400">EMERGENCY: 대원 시체 현장 발견!</h3>
+                <p id="corpse-broadcast-text" class="text-xs text-slate-300">OO 구역에서 대원의 무선 신호가 영구 종료되었습니다.</p>
+            </div>
+        </div>
+        <button onclick="closeCorpseBroadcast()" class="bg-red-900/60 hover:bg-red-800 text-red-200 px-3 py-1 rounded-md text-xs font-bold transition">사태 인지</button>
+    </div>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="flex-1 flex overflow-hidden lg:flex-row flex-col">
+        
+        <!-- LEFT PANEL: MOBILE DEVICE SCREEN SIMULATION (THE PLAYER CONSOLE) -->
+        <section id="left-panel" class="lg:w-[450px] w-full border-r border-slate-800 bg-slate-950 flex flex-col p-3 lg:p-4 shrink-0 overflow-y-auto">
+            <div class="text-center mb-2 lg:block hidden">
+                <span class="text-xs text-slate-500 uppercase tracking-widest font-bold">플레이어 모바일 콘솔 화면</span>
+            </div>
+            
+            <!-- Phone Container Simulated Frame -->
+            <div class="flex-1 bg-transparent lg:bg-slate-900 lg:rounded-[2.5rem] p-0 lg:p-4 lg:border-[6px] border-0 lg:border-slate-800 flex flex-col relative lg:shadow-2xl overflow-hidden max-w-sm mx-auto w-full h-full">
+                <!-- Phone Notch -->
+                <div class="hidden lg:block absolute top-0 left-1/2 -translate-x-1/2 w-32 h-5 bg-slate-800 rounded-b-xl z-20"></div>
+                
+                <!-- Screen Content (Dynamic Screens) -->
+                <div class="flex-1 lg:rounded-[1.8rem] rounded-2xl bg-slate-950 p-3 lg:p-4 lg:pt-6 pt-4 overflow-y-auto flex flex-col relative transition-all duration-300" id="mobile-screen">
+                    
+                    <!-- SCREEN 1: LOBBY & REGISTRATION (Default) -->
+                    <div id="screen-lobby" class="flex-1 flex flex-col justify-between h-full">
+                        <div class="text-center py-1">
+                            <span class="text-2xl animate-bounce inline-block">🚀</span>
+                            <h2 class="scifi-font text-base lg:text-lg font-bold text-cyan-400 mt-0.5">대기실 준비 중</h2>
+                            <p class="text-[10px] lg:text-[11px] text-slate-400 mt-0.5">자신의 명찰 배지(NFC)를 태그하여 마스터 정식 서명을 확보하세요.</p>
+                        </div>
+
+                        <!-- Card displaying active scanning instructions -->
+                        <div class="bg-slate-900/85 border border-cyan-500/30 rounded-xl p-2.5 text-center my-2 neon-glow-cyan shrink-0">
+                            <div class="w-8 h-8 mx-auto mb-1 rounded-full bg-cyan-950 border border-cyan-500 flex items-center justify-center animate-pulse">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5.07 8.31l3.58-3.58m0 0A13.916 13.916 0 0112 3a13.916 13.916 0 014.35 1.73l3.58 3.58M4 20h4" />
+                                </svg>
+                            </div>
+                            <h3 class="text-[11px] font-semibold text-slate-200">역할 수령용 NFC 스캔</h3>
+                            <p class="text-[9px] text-slate-400">지정된 플레이어 NFC에 스마트폰을 태그하거나 우측 콘솔에서 '플레이어 고유 NFC 배지'를 선택하세요.</p>
+                        </div>
+
+                        <!-- Status of assigned players in lobby -->
+                        <div class="flex-1 bg-slate-900 rounded-xl p-3 overflow-y-auto min-h-[100px] max-h-[180px] text-xs">
+                            <div class="flex justify-between border-b border-slate-800 pb-1.5 mb-1.5 text-slate-400 font-bold">
+                                <span>참가자 등록 상태</span>
+                                <span id="lobby-ready-count">0/0 완료</span>
+                            </div>
+                            <ul id="lobby-player-list" class="space-y-1 text-slate-300">
+                                <li class="text-center text-slate-500 py-6">NFC가 스캔된 플레이어가 없습니다.</li>
+                            </ul>
+                        </div>
+
+                        <!-- 🤖 Solo Debug Button -->
+                        <button onclick="autoReadyAllBots()" class="mt-2 w-full bg-slate-800 hover:bg-slate-700 text-cyan-400 py-2 rounded-xl text-[10px] font-bold border border-slate-700 transition shrink-0">
+                            🤖 가상 대원 일괄 준비 (혼자 테스트용)
+                        </button>
+
+                        <!-- 🛡️ [SECURITY UPDATE]: Start Button removed from players device, replaced with status message -->
+                        <div id="lobby-gm-waiting-msg" class="mt-3 text-center text-[11px] text-amber-500 font-semibold animate-pulse shrink-0 py-2 bg-slate-900/80 rounded-lg border border-slate-800">
+                            📡 대원들의 NFC 스캔 등록을 대기 중...
+                        </div>
+                    </div>
+
+                    <!-- SCREEN 2: IN-GAME PLAYER DASHBOARD -->
+                    <div id="screen-game" class="flex-1 flex flex-col justify-between hidden">
+                        <div>
+                            <!-- Top Info & Role Indicator -->
+                            <div class="flex items-center justify-between bg-slate-900 p-3 rounded-xl border border-slate-800">
+                                <div>
+                                    <span class="text-[9px] text-slate-500 block uppercase font-bold tracking-wider">나의 직급</span>
+                                    <span id="player-role-badge" class="text-xs font-black scifi-font tracking-wide">크루원 (Crewmate)</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-[9px] text-slate-500 block uppercase font-bold tracking-wider">플레이어 정보</span>
+                                    <span id="player-name-badge" class="text-xs font-semibold text-cyan-400">플레이어 1</span>
+                                </div>
+                            </div>
+
+                            <!-- Crewmate Mission Progress Bar -->
+                            <div class="mt-3.5 bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/60">
+                                <div class="flex justify-between text-[11px] mb-1">
+                                    <span class="text-slate-400">우주선 수리 완료도 (목표 도달 시 승리)</span>
+                                    <span id="crew-progress-text" class="text-emerald-400 font-bold">0%</span>
+                                </div>
+                                <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                                    <div id="crew-progress-bar" class="bg-emerald-500 h-full transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                                <div class="text-[10px] text-slate-500 text-right mt-1" id="crew-progress-sub">완료한 미션: 0 / 0회</div>
+                            </div>
+
+                            <!-- Game Instructions / Alert -->
+                            <div class="mt-3 bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 text-center">
+                                <div class="text-[11px] text-slate-300" id="mission-status-instruction">
+                                    지정된 공간에 부착된 <span class="text-cyan-400 font-semibold">미션 NFC 태그</span>를 찾아 스마트폰에 접촉하여 미션을 해결하세요!
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active Task / Dead State Overlay Container -->
+                        <div class="my-4 bg-slate-900/40 border border-slate-800/50 rounded-xl p-4 flex flex-col justify-center items-center text-center">
+                            <div id="game-active-icon" class="text-4xl mb-2 animate-pulse">🛸</div>
+                            <h3 id="game-active-title" class="text-sm font-semibold text-slate-200">구역 수색 중...</h3>
+                            <p id="game-active-desc" class="text-xs text-slate-400 mt-1">현장의 미션룸(NFC)을 스캔해 보수 작업을 진행하거나, 적에게 발각되지 않게 경계하십시오.</p>
+                        </div>
+
+                        <!-- Direct Trigger Actions -->
+                        <div class="mt-auto pt-2 border-t border-slate-900">
+                            <button id="impostor-kill-btn" onclick="openImpostorKillAction()" class="hidden w-full bg-purple-950/80 border border-purple-500/30 hover:bg-purple-900 text-purple-200 py-2 px-3 rounded-lg text-xs font-semibold items-center justify-center gap-1.5 transition">
+                                🧪 [시뮬레이터 전용] 가상 강제 추방 (실물 NFC 없을 때만)
+                            </button>
+                            <div id="crewmate-tip" class="text-[10px] text-slate-500 text-center py-1">
+                                정식 공격: ① 크루원 명찰을 직접 태그해 즉시 암살, ② 미션 구역 NFC에 덫 설치. 오염된 구역을 스캔하면 소거됩니다!
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SCREEN 3: ACTIVE MISSION INTERACTION (WIRE / MEMORY / SWIPE) -->
+                    <div id="screen-mission" class="flex-1 flex flex-col justify-between hidden">
+                        <div>
+                            <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                                <h3 id="current-mission-name" class="scifi-font text-sm font-bold text-cyan-400">전기 배선 수리</h3>
+                                <button onclick="exitMission()" class="text-slate-500 hover:text-slate-300 text-xs">포기 ✕</button>
+                            </div>
+                            <p id="current-mission-desc" class="text-[11px] text-slate-400 mt-1.5 mb-2">지정된 전선 색을 바르게 연결하십시오.</p>
+                        </div>
+
+                        <!-- Mini-Game Interactive Arena Container -->
+                        <div class="flex-1 bg-slate-900 rounded-2xl border border-slate-800 p-3 flex flex-col justify-center min-h-[180px]" id="mission-game-arena">
+                            <!-- Dynamic Content injected by JS -->
+                        </div>
+
+                        <div class="mt-3 pt-2.5 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-400">
+                            <span>보수 정거장: <strong id="mission-station-id" class="text-cyan-500">A1</strong></span>
+                            <span id="mission-feedback-msg" class="text-amber-400 animate-pulse"></span>
+                        </div>
+                    </div>
+
+                    <!-- SCREEN 5: GAME OVER -->
+                    <div id="screen-gameover" class="flex-1 flex flex-col justify-between items-center text-center py-4 hidden">
+                        <div>
+                            <span class="text-5xl mb-3 block" id="gameover-emoji">🏆</span>
+                            <h2 id="gameover-title" class="scifi-font text-xl font-black tracking-wide text-cyan-400">크루 승리!</h2>
+                            <p id="gameover-desc" class="text-[11px] text-slate-400 mt-1.5 px-2">오프라인 미션 수리 한계를 성공적으로 완수해 우주선을 인양했습니다.</p>
+                        </div>
+
+                        <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 w-full text-[11px] text-left max-h-48 overflow-y-auto">
+                            <h4 class="font-bold text-slate-300 border-b border-slate-800 pb-1.5 mb-1.5">최종 생존 리포트</h4>
+                            <div class="space-y-1 text-slate-400" id="gameover-summary">
+                                <!-- dynamic content -->
+                            </div>
+                        </div>
+
+                        <button onclick="resetToLobby()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded-xl text-xs font-bold scifi-font uppercase tracking-wider neon-glow-cyan transition">
+                            대기실로 원상 복구
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- RIGHT PANEL: GAME MASTER MANAGEMENT, PHYSICAL NFC WRITER, & TAG SIMULATOR DOCK -->
+        <section id="gm-panel" class="flex-1 bg-slate-900 overflow-y-auto p-5 flex flex-col">
+            
+            <!-- Quick Alert Message Box for Web Notifications -->
+            <div id="system-alert-box" class="mb-4 hidden bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3 flex items-start space-x-2 text-xs text-cyan-300">
+                <span class="text-base">💡</span>
+                <div class="flex-1">
+                    <strong class="font-semibold block text-slate-100">알림 피드백</strong>
+                    <span id="system-alert-text">NFC 태그 작동 관련 정보입니다.</span>
+                </div>
+                <button onclick="closeSystemAlert()" class="text-cyan-500 hover:text-cyan-300 font-bold">✕</button>
+            </div>
+
+            <!-- TWO COLUMN SUB-LAYOUT -->
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 flex-1">
+                
+                <!-- COLUMN 1: VIRTUAL NFC TAG SIMULATION DOCK -->
+                <div class="bg-slate-950/50 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-start mb-2.5">
+                            <div>
+                                <h2 class="scifi-font text-sm font-bold text-cyan-400 tracking-wide">VIRTUAL NFC DOCK (태그 테스트용)</h2>
+                                <p class="text-[10px] text-slate-400">모바일 장치나 NFC 스티커가 없을 때 실제 태그가 접촉된 상황을 대신 시뮬레이션합니다.</p>
+                            </div>
+                            <span class="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400">TEST CONSOLE</span>
+                        </div>
+
+                        <!-- Category: Player Personal Badges / ID Cards -->
+                        <div class="mb-3">
+                            <div class="flex justify-between items-center mb-1.5">
+                                <h3 class="text-[11px] font-bold text-slate-400 border-l-2 border-cyan-500 pl-1.5 uppercase">1단계: 플레이어 고유 NFC 배지</h3>
+                            </div>
+                            
+                            <!-- 👁️ Swap Mode Control toggle added for Solo simulation -->
+                            <div class="flex items-center justify-between bg-slate-950 p-1.5 rounded-lg border border-slate-800/80 mb-2">
+                                <span class="text-[9px] text-slate-400 font-bold uppercase">클릭 동작 제어 (솔로 테스트용):</span>
+                                <div class="flex bg-slate-900 rounded p-0.5 text-[8px]" id="dock-action-controls">
+                                    <button id="dock-action-swap" onclick="setDockActionMode('SWAP')" class="px-2 py-0.5 rounded text-cyan-400 font-bold bg-slate-800">👁️ 시점 전환</button>
+                                    <button id="dock-action-tag" onclick="setDockActionMode('TAG')" class="px-2 py-0.5 rounded text-slate-500 font-medium ml-1">🎯 배지 태그</button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-1 max-h-48 overflow-y-auto bg-slate-950 p-2 rounded-lg border border-slate-800" id="sim-players-grid">
+                                <!-- Injected dynamically based on lobby configuration -->
+                            </div>
+                        </div>
+
+                        <!-- Category: Mission Room Tags -->
+                        <div class="mb-2">
+                            <h3 class="text-[11px] font-bold text-slate-400 mb-1.5 border-l-2 border-emerald-500 pl-1.5 uppercase">2단계: 시설물 및 미션 NFC 태그</h3>
+                            <div class="grid grid-cols-3 gap-1.5">
+                                <button onclick="simulateNfcScan('MissionWire')" class="relative flex flex-col justify-between bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-2 rounded-lg text-left transition text-xs">
+                                    <span class="font-bold text-slate-300 block text-[10px]">⚡ 전기 배선실</span>
+                                    <div class="flex justify-between items-center mt-1">
+                                        <span class="bg-emerald-950 text-emerald-400 text-[9px] px-1 py-0.5 rounded">NFC#1</span>
+                                        <span id="trap-indicator-MissionWire" class="hidden text-[9px] text-red-400 font-bold animate-pulse">😈 덫</span>
+                                    </div>
+                                </button>
+                                <button onclick="simulateNfcScan('MissionReactor')" class="relative flex flex-col justify-between bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-2 rounded-lg text-left transition text-xs">
+                                    <span class="font-bold text-slate-300 block text-[10px]">🔮 원자로실</span>
+                                    <div class="flex justify-between items-center mt-1">
+                                        <span class="bg-emerald-950 text-emerald-400 text-[9px] px-1 py-0.5 rounded">NFC#2</span>
+                                        <span id="trap-indicator-MissionReactor" class="hidden text-[9px] text-red-400 font-bold animate-pulse">😈 덫</span>
+                                    </div>
+                                </button>
+                                <button onclick="simulateNfcScan('MissionAdmin')" class="relative flex flex-col justify-between bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-2 rounded-lg text-left transition text-xs">
+                                    <span class="font-bold text-slate-300 block text-[10px]">📇 관리실 데스크</span>
+                                    <div class="flex justify-between items-center mt-1">
+                                        <span class="bg-emerald-950 text-emerald-400 text-[9px] px-1 py-0.5 rounded">NFC#3</span>
+                                        <span id="trap-indicator-MissionAdmin" class="hidden text-[9px] text-red-400 font-bold animate-pulse">😈 덫</span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category: Simulated Game Status Center & GM Actions -->
+                    <div class="mt-3 bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs space-y-3">
+                        <div class="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                            <span class="font-bold text-slate-300 scifi-font">GM 스크린 (진행 모니터)</span>
+                            <span id="gm-game-state" class="text-cyan-400 font-bold uppercase text-[10px]">대기실 세팅 중</span>
+                        </div>
+                        
+                        <!-- MASTER ACTIONS (D&N SWITCH) -->
+                        <div id="gm-master-actions" class="grid grid-cols-2 gap-2">
+                            <button onclick="masterTriggerNight()" id="btn-master-night" class="bg-purple-900/60 hover:bg-purple-800 border border-purple-500/40 text-purple-200 py-1.5 rounded text-xs font-bold transition">
+                                🌙 함선 밤(소등) 선언
+                            </button>
+                            <button onclick="masterTriggerMorning()" id="btn-master-morning" class="bg-amber-600 hover:bg-amber-500 text-slate-950 py-1.5 rounded text-xs font-bold transition">
+                                ☀️ 아침(소환) 선언
+                            </button>
+                        </div>
+
+                        <!-- 🗳️ [GM VOTE EJECT]: Offline (show-of-hands / verbal) vote — GM enters the result directly -->
+                        <div id="gm-vote-actions" class="hidden">
+                            <button onclick="openVoteEjectPanel()" id="btn-open-vote" class="w-full bg-rose-900/60 hover:bg-rose-800 border border-rose-500/40 text-rose-200 py-1.5 rounded text-xs font-bold transition">
+                                🗳️ 오프라인 투표 결과 입력 (추방 처리)
+                            </button>
+                        </div>
+
+                        <!-- 🗳️ [GM VOTE EJECT]: Survivor selection grid, shown only while choosing -->
+                        <div id="vote-eject-panel" class="hidden bg-slate-950 border border-rose-500/30 rounded-lg p-2.5 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-rose-300 font-bold">투표로 추방할 대원을 선택하세요</span>
+                                <button onclick="closeVoteEjectPanel()" class="text-slate-500 hover:text-slate-300 text-xs">✕</button>
+                            </div>
+                            <div id="vote-eject-grid" class="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
+                                <!-- Filled dynamically with alive players -->
+                            </div>
+                            <button onclick="confirmVoteEject(null)" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 py-1.5 rounded text-[10px] font-bold transition">
+                                동점 / 기권多 → 아무도 추방하지 않음
+                            </button>
+                        </div>
+
+                        <!-- 🚀 [GM DEDICATED START BUTTON]: Exclusively controls flight launch from computer/tablet -->
+                        <div id="gm-lobby-actions" class="mt-2">
+                            <button onclick="startGame()" id="btn-gm-start-game" disabled class="w-full bg-slate-800 text-slate-500 py-2.5 rounded text-xs font-bold scifi-font uppercase tracking-wide transition border border-slate-700 cursor-not-allowed">
+                                우주선 비행 개시 (모든 대원 준비 필요)
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-y-1 text-slate-400 text-[10px]">
+                            <span>전체 플레이어 수: <strong id="gm-total-p" class="text-slate-200">24명</strong></span>
+                            <span>임포스터 규모: <strong id="gm-total-imp" class="text-red-400">4명</strong></span>
+                            <span>총 완료 미션 횟수: <strong id="gm-completed-missions" class="text-emerald-400">0회</strong></span>
+                            <span>진행 잔여 크루 수: <strong id="gm-alive-crew" class="text-cyan-300">20명</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- COLUMN 2: PHYSICAL NFC WRITE TOOL & LIVE MONITOR -->
+                <div class="bg-slate-950/50 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+                    <div>
+                        <!-- Section A: Live Death Logs / Broadcast Central -->
+                        <div class="mb-4">
+                            <h2 class="scifi-font text-xs font-bold text-red-400 tracking-wide mb-1.5 uppercase flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span> 🚨 실시간 함선 통제 상황판 (사망 보고)
+                            </h2>
+                            <div class="bg-slate-900 border border-slate-800/80 rounded-xl p-2.5 max-h-36 overflow-y-auto" id="gm-death-logs-container">
+                                <div class="text-center text-slate-500 text-[10px] py-4">사망 보고가 등록되지 않았습니다. 안심하십시오.</div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between mb-2 pt-2 border-t border-slate-800">
+                            <h2 class="scifi-font text-xs font-bold text-cyan-400 tracking-wide">PHYSICAL NFC WRITER</h2>
+                            <span class="text-slate-500 text-[9px]">태그 카드 굽기 전용</span>
+                        </div>
+
+                        <!-- Input and Select values for NFC burning -->
+                        <div class="space-y-2 bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                            <div>
+                                <label class="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">NFC 태그 목적지 선택</label>
+                                <select id="nfc-write-type" onchange="updateNfcWritePreview()" class="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 px-2 text-[11px] text-slate-300 focus:outline-none focus:border-cyan-500">
+                                    <!-- Dynamic elements go here -->
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[8px] font-bold text-slate-400 uppercase mb-0.5">작성될 실제 NFC 텍스트값</label>
+                                <input type="text" id="nfc-write-data" readonly class="w-full bg-slate-950 border border-slate-800 rounded-lg py-1 px-2 text-[10px] text-slate-500 focus:outline-none" value="NSC:PLAYER_1">
+                            </div>
+
+                            <!-- Real NFC Burning Trigger -->
+                            <button onclick="writeToNfcTag()" id="btn-nfc-write" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 py-1.5 rounded-lg text-xs font-bold tracking-wide flex items-center justify-center gap-1 transition">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                NFC 카드/스티커에 쓰기 실행
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Quick Step-by-Step guide to setup the game offline -->
+                    <div class="mt-2 bg-slate-900/60 rounded-xl p-2.5 border border-slate-800/80 text-xs">
+                        <h4 class="font-semibold text-slate-200 mb-1 flex items-center gap-1 text-[10px]">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> 마피아 전용 덫(오염) 규칙 가이드
+                        </h4>
+                        <ol class="list-decimal list-inside space-y-0.5 text-slate-400 text-[9px] leading-snug">
+                            <li><strong>마피아의 은밀한 오염</strong>: 임포스터가 미션룸 NFC를 태그하면, 보수 창 대신 덫이 설정됩니다.</li>
+                            <li><strong>시민의 의문사</strong>: 크루원이 해당 구역 NFC를 태그해 수리 작업을 하려고 한 순간, 경보음과 함께 사망 처리됩니다.</li>
+                            <li><strong>실시간 상황판 안내</strong>: 사망 발생 즉시 메인 중앙 모니터(우측 상황판)에 비상 보고 알림이 발령됩니다.</li>
+                            <li><strong>동선 브리핑 & 토론</strong>: 소리나 중앙 모니터를 통해 사망 소식을 확인한 뒤, 자유롭게 모여 해당 장소의 의심자를 자유 수색하세요!</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- SETUP CONFIGURATIONS MODAL (POPUP) -->
+    <div id="setup-modal" class="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4 backdrop-blur-sm hidden">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl flex flex-col">
+            <div class="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
+                <h3 class="scifi-font text-sm font-bold text-cyan-400 tracking-wide">단체 게임 세팅 & 인원 조정</h3>
+                <button onclick="toggleSetupModal(false)" class="text-slate-500 hover:text-slate-300 text-lg">✕</button>
+            </div>
+            
+            <div class="p-5 space-y-4 max-h-[450px] overflow-y-auto">
+                <!-- Count of Players -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">참가자 총원</label>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="adjustPlayersCount(-1)" class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 flex items-center justify-center font-bold text-base">-</button>
+                        <span id="setup-player-count-display" class="scifi-font text-lg font-bold w-12 text-center text-cyan-400">24</span>
+                        <button onclick="adjustPlayersCount(1)" class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 flex items-center justify-center font-bold text-base">+</button>
+                    </div>
+                    <span class="text-[9px] text-slate-500 mt-1 block">대인원 구성용 최적 범위 (최소 1명 ~ 최대 32명)</span>
+                </div>
+
+                <!-- Number of Impostors -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">임포스터(마피아) 인원수</label>
+                    <select id="setup-impostor-count" class="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 px-3 text-xs text-slate-300 focus:outline-none focus:border-cyan-500">
+                        <!-- Filled by JS dynamically to balance with total players -->
+                    </select>
+                </div>
+
+                <!-- Total Required Missions -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">크루원 승리에 필요한 총 미션(수리) 횟수</label>
+                    <input type="number" id="setup-total-missions" min="1" max="999" class="w-full bg-slate-950 border border-slate-800 rounded-lg py-1.5 px-3 text-xs text-slate-300 focus:outline-none focus:border-cyan-500" value="40">
+                    <span class="text-[9px] text-slate-500 mt-1 block">전원이 합산으로 채워야 하는 미션(수리) 누적 횟수입니다. (기본 40회)</span>
+                </div>
+
+                <!-- Custom Player Names Setup -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">플레이어 닉네임 일괄 세팅</label>
+                    <div class="space-y-1.5 max-h-40 overflow-y-auto pr-1" id="setup-names-container">
+                        <!-- Filled by Javascript dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-950 border-t border-slate-800 px-5 py-3 flex justify-end space-x-2">
+                <button onclick="toggleSetupModal(false)" class="bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase transition">취소</button>
+                <button onclick="applyNewGameSetup()" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 px-4.5 py-1.5 rounded-lg text-xs font-bold uppercase scifi-font tracking-wider transition neon-glow-cyan">변경 및 리셋 적용</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CODES ROOM JOIN MODAL (POPUP ON LOAD IF NO ROOM ACTIVE) -->
+    <div id="room-selection-modal" class="fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="bg-slate-900 border border-cyan-500/30 w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-6 flex flex-col items-center">
+            <span class="text-4xl animate-bounce mb-2">📡</span>
+            <h3 class="scifi-font text-lg font-bold text-cyan-400 tracking-wide text-center">우주선 동기화 채널 선택</h3>
+            <p class="text-[11px] text-slate-400 text-center mt-1 mb-4">
+                오프라인 대인원 롤플레잉 진행을 위한 룸 코드입니다. 다른 플레이어들과 동일한 4자리 코드를 입력해야 실시간 상호 동기화가 이루어집니다.
+            </p>
+
+            <div class="w-full space-y-3">
+                <div>
+                    <label class="block text-[10px] text-slate-500 uppercase font-semibold mb-1">동기화 채널 코드 (숫자 4자리)</label>
+                    <input type="text" id="join-room-code-input" maxlength="4" placeholder="예: 7777" class="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500/50 rounded-lg py-2 px-3 text-center scifi-font font-bold text-lg text-cyan-300 focus:outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-2">
+                    <button onclick="joinRoomAction()" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2 rounded-lg text-xs font-bold scifi-font transition">우주선 탑승</button>
+                    <button onclick="createRoomAction()" class="bg-slate-800 hover:bg-slate-700 text-cyan-400 py-2 rounded-lg text-xs font-bold scifi-font border border-slate-700 transition">새 채널 개설</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AUDIO TOGGLE -->
+    <div class="fixed bottom-4 right-4 z-40 bg-slate-900/90 border border-slate-800 rounded-full px-3 py-1.5 text-xs flex items-center space-x-2 shadow-lg">
+        <button id="btn-audio-mute" onclick="toggleAudioMute()" class="text-cyan-400 hover:text-cyan-300 focus:outline-none">
+            <svg id="svg-volume-on" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+            <svg id="svg-volume-off" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+        </button>
+        <span class="text-[9px] text-slate-400">효과음</span>
+    </div>
+
+    <!-- JAVASCRIPT GAME LOGIC & REAL-TIME MQTT SYNC -->
+    <script>
+        // Core game configurations and states
+        const config = {
+            players: [],
+            impostorCount: 4,
+            missions: {
+                totalRequired: 40,
+                completedCount: 0
+            },
+            traps: {
+                MissionWire: { active: false, placedBy: null },
+                MissionReactor: { active: false, placedBy: null },
+                MissionAdmin: { active: false, placedBy: null }
+            },
+            deathLogs: []
+        };
+
+        // Real-time synchronization states
+        let roomCode = localStorage.getItem('nfc_room_code') || '';
+        let mqttClient = null;
+        let activePlayer = null; 
+        let gameState = "LOBBY"; // LOBBY, IN_GAME, GAMEOVER
+        let webNfcSupported = false;
+        let isMuted = false;
+        let audioCtx = null;
+        let isGM = true; // GM 권한 상태 (메인 데스크톱에서 설정 갱신 시 true)
+        
+        // Solo sandbox tester variables
+        let dockActionMode = "SWAP"; // SWAP (View mode), TAG (Actual NFC simulation)
+        
+        // Dynamic NFC Action Queue System
+        let pendingTagScan = null;
+
+        // Mini games local states
+        let selectedWireLeft = null;
+        let completedConnections = 0;
+        let simonSequence = [];
+        let playerSequence = [];
+        let simonRound = 0; // 🎚️ [DIFFICULTY UP]: tracks how many rounds cleared this mission attempt
+        const SIMON_TOTAL_ROUNDS = 3;
+        let adminRound = 0; // 🎚️ [DIFFICULTY UP]: tracks card-swipe rounds cleared this mission attempt
+        const ADMIN_TOTAL_ROUNDS = 3;
+        let swipeStart = 0;
+
+        // Helper to map system station names to Korean
+        function getStationName(stationId) {
+            const map = {
+                "MissionWire": "⚡ 전기 배선실",
+                "MissionReactor": "🔮 원자로실",
+                "MissionAdmin": "📇 관리실 데스크"
+            };
+            return map[stationId] || stationId;
+        }
+
+        // View Mode Switcher: PLAYER vs GM (Optimized to secure host privileges)
+        function setViewMode(mode) {
+            const gmPanel = document.getElementById('gm-panel');
+            const leftPanel = document.getElementById('left-panel');
+            const btnPlayer = document.getElementById('btn-mode-player');
+            const btnGm = document.getElementById('btn-mode-gm');
+
+            if (mode === 'PLAYER') {
+                isGM = false;
+                gmPanel.classList.add('hidden');
+                leftPanel.classList.remove('lg:w-[450px]');
+                leftPanel.classList.add('flex-1', 'justify-center', 'items-center');
+                btnPlayer.className = "px-3 py-1 rounded bg-cyan-600 text-slate-950 text-xs font-bold transition";
+                btnGm.className = "px-3 py-1 rounded bg-slate-800 text-slate-400 text-xs font-semibold border border-slate-700 hover:bg-slate-700 transition";
+            } else {
+                isGM = true;
+                gmPanel.classList.remove('hidden');
+                leftPanel.classList.add('lg:w-[450px]');
+                leftPanel.classList.remove('flex-1', 'justify-center', 'items-center');
+                btnPlayer.className = "px-3 py-1 rounded bg-slate-800 text-slate-400 text-xs font-semibold border border-slate-700 hover:bg-slate-700 transition";
+                btnGm.className = "px-3 py-1 rounded bg-cyan-600 text-slate-950 text-xs font-bold transition";
+            }
+            renderSimulatedPlayersDock();
+        }
+
+        // Control Solo Sandbox Virtual Dock Actions
+        function setDockActionMode(mode) {
+            dockActionMode = mode;
+            const btnSwap = document.getElementById('dock-action-swap');
+            const btnTag = document.getElementById('dock-action-tag');
+
+            if (mode === 'SWAP') {
+                btnSwap.className = "px-2 py-0.5 rounded text-cyan-400 font-bold bg-slate-800";
+                btnTag.className = "px-2 py-0.5 rounded text-slate-500 font-medium ml-1";
+            } else {
+                btnSwap.className = "px-2 py-0.5 rounded text-slate-500 font-medium";
+                btnTag.className = "px-2 py-0.5 rounded text-cyan-400 font-bold bg-slate-800 ml-1";
+            }
+        }
+
+        // Sound synthesizer using Web Audio API
+        class SoundSynth {
+            static init() {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            static playBeep(freq, type, duration) {
+                if (isMuted) return;
+                try {
+                    this.init();
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = type || 'sine';
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + duration);
+                } catch (e) {
+                    console.log('Web Audio failed:', e);
+                }
+            }
+
+            static playSuccess() {
+                this.playBeep(523.25, 'triangle', 0.1); 
+                setTimeout(() => this.playBeep(659.25, 'triangle', 0.1), 100); 
+                setTimeout(() => this.playBeep(783.99, 'triangle', 0.12), 200); 
+            }
+
+            static playError() {
+                this.playBeep(180, 'sawtooth', 0.25); 
+            }
+
+            static playScream() {
+                this.playBeep(320, 'sawtooth', 0.45);
+                setTimeout(() => this.playBeep(180, 'sawtooth', 0.5), 150);
+            }
+        }
+
+        // LocalStorage helpers to backup configuration on devices
+        function saveConfigToLocalStorage() {
+            localStorage.setItem('nsc_players_config', JSON.stringify({
+                players: config.players,
+                impostorCount: config.impostorCount,
+                totalRequired: config.missions.totalRequired
+            }));
+        }
+
+        function loadConfigFromLocalStorage() {
+            const saved = localStorage.getItem('nsc_players_config');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    config.players = parsed.players;
+                    config.impostorCount = parsed.impostorCount;
+                    // 🛡️ [FIX]: Guard against corrupted/zero/NaN totalRequired causing instant-win bug
+                    const loadedTotal = parseInt(parsed.totalRequired);
+                    config.missions.totalRequired = (Number.isFinite(loadedTotal) && loadedTotal > 0) ? loadedTotal : 40;
+                    return true;
+                } catch(e) {
+                    console.error(e);
+                }
+            }
+            return false;
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const loaded = loadConfigFromLocalStorage();
+            if (!loaded) {
+                initializeDefaultPlayers(24);
+            }
+            detectWebNfc();
+            initializeLobbySetup();
+            renderSimulatedPlayersDock();
+            updateNfcWriterSelectOptions();
+            updateNfcWritePreview();
+            
+            // Auto responsive view detection
+            if (window.innerWidth < 1024) {
+                setViewMode('PLAYER');
+            } else {
+                setViewMode('GM');
+            }
+
+            // 📡 [CRITICAL MULTI-BROWSER PATCH]: Extract tag and room parameter from scanned URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const tagParam = urlParams.get('tag');
+            const roomParam = urlParams.get('room');
+
+            // 📡 Automatically recover and save roomCode across sandboxed iOS Safari environments
+            if (roomParam) {
+                roomCode = roomParam;
+                localStorage.setItem('nfc_room_code', roomCode);
+            }
+
+            if (tagParam) {
+                pendingTagScan = tagParam;
+                // Clear query parameters from address bar to prevent double triggers on refreshes
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
+            // Setup synchronization or pop up selection screen
+            if (roomCode) {
+                document.getElementById('room-selection-modal').classList.add('hidden');
+                initMqttSync();
+            } else {
+                // Offline mode fallback: trigger actions immediately
+                if (pendingTagScan) {
+                    const tag = pendingTagScan;
+                    pendingTagScan = null;
+                    setTimeout(() => {
+                        simulateNfcScan(tag);
+                    }, 800);
+                }
+            }
+        });
+
+        // MQTT REAL-TIME COUPLING
+        function initMqttSync() {
+            if (!roomCode) return;
+
+            const clientId = 'nsc_client_' + Math.random().toString(16).substr(2, 6);
+            
+            mqttClient = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+                clientId: clientId,
+                clean: true,
+                connectTimeout: 5000,
+                reconnectPeriod: 2000
+            });
+
+            const statusText = document.getElementById('nfc-status-text');
+            const statusDot = document.getElementById('nfc-status-dot');
+
+            mqttClient.on('connect', () => {
+                statusText.textContent = `채널 연결: ${roomCode}`;
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+                
+                mqttClient.subscribe(`nfc_space_crew/rooms/${roomCode}/events`);
+                
+                // Request current room state from GM Master
+                publishSyncEvent('REQUEST_STATE', {});
+            });
+
+            mqttClient.on('message', (topic, payload) => {
+                try {
+                    const message = JSON.parse(payload.toString());
+                    handleReceivedSyncEvent(message);
+                } catch (e) {
+                    console.error('State parse failed', e);
+                }
+            });
+
+            mqttClient.on('error', (err) => {
+                statusText.textContent = "연결 해제 (재시도)";
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+            });
+        }
+
+        // Broadcaster for channel messages
+        function publishSyncEvent(type, data) {
+            if (!mqttClient || !roomCode) return;
+            const payload = {
+                type: type,
+                sender: activePlayer ? activePlayer.id : 'HOST',
+                timestamp: Date.now(),
+                data: data
+            };
+            mqttClient.publish(`nfc_space_crew/rooms/${roomCode}/events`, JSON.stringify(payload));
+        }
+
+        // Receiver Router of synchronized system states
+        function handleReceivedSyncEvent(event) {
+            const { type, sender, data } = event;
+
+            switch(type) {
+                case 'REQUEST_STATE':
+                    if (isGM) {
+                        publishSyncEvent('STATE_SYNC', {
+                            players: config.players,
+                            impostorCount: config.impostorCount,
+                            missions: config.missions,
+                            traps: config.traps,
+                            gameState: gameState,
+                            deathLogs: config.deathLogs
+                        });
+                    }
+                    break;
+
+                case 'STATE_SYNC':
+                    config.players = data.players;
+                    config.impostorCount = data.impostorCount;
+                    config.missions = data.missions;
+                    config.traps = data.traps;
+                    config.deathLogs = data.deathLogs;
+                    
+                    if (gameState !== data.gameState) {
+                        gameState = data.gameState;
+                        applyGameStateTransitionUI();
+                    }
+
+                    renderLobbyPlayerList();
+                    renderSimulatedPlayersDock();
+                    updateDeathLogsUI();
+                    
+                    // Recover active player session safely across page reloads!
+                    const savedPlayerId = localStorage.getItem('nfc_active_player_id');
+                    if (savedPlayerId) {
+                        activePlayer = config.players.find(p => p.id === savedPlayerId) || activePlayer;
+                    }
+                    
+                    if (activePlayer) {
+                        updatePlayerConsoleView();
+                    }
+
+                    // Process pending queued NFC action once state is fully synced!
+                    if (pendingTagScan) {
+                        const tagToExecute = pendingTagScan;
+                        pendingTagScan = null; // Flush
+                        setTimeout(() => {
+                            simulateNfcScan(tagToExecute);
+                        }, 100);
+                    }
+                    break;
+
+                case 'PLAYER_READY':
+                    // 🛡️ [FIX]: Every device reflects this directly — no GM gatekeeper required
+                    const readyPlayer = config.players.find(p => p.id === data.playerId);
+                    if (readyPlayer) {
+                        readyPlayer.isReady = true;
+                        renderLobbyPlayerList();
+                        renderSimulatedPlayersDock();
+                    }
+                    break;
+
+                case 'GAME_START':
+                    gameState = 'IN_GAME';
+                    config.missions = data.missions;
+                    config.players = data.players;
+                    applyGameStateTransitionUI();
+                    break;
+
+                case 'TRAP_PLACED':
+                    // 🛡️ [FIX]: Every device applies this directly — no GM gatekeeper required
+                    config.traps[data.stationId] = { active: true, placedBy: data.placedBy };
+                    break;
+
+                case 'MISSION_COMPLETED':
+                    // 🛡️ [FIX]: Adopt the sender's authoritative count rather than incrementing again locally
+                    // (prevents double-counting when every device processes its own actions)
+                    config.missions.completedCount = Math.max(config.missions.completedCount, data.completedCount);
+                    updateMissionGlobalProgressBar();
+                    break;
+
+                case 'PLAYER_DIED':
+                    const v = config.players.find(p => p.id === data.victimId);
+                    if (v) {
+                        v.isAlive = false;
+                    }
+                    config.deathLogs = data.deathLogs;
+                    if (data.traps) config.traps = data.traps;
+
+                    if (activePlayer && activePlayer.id === data.victimId) {
+                        activePlayer.isAlive = false;
+                    }
+
+                    // 🛡️ [FIX]: The device that triggered this already ran its own death sequence/sound —
+                    // only play it here for everyone else receiving the broadcast
+                    const isSelfTrigger = (sender === (activePlayer ? activePlayer.id : null)) && data.victimId === sender;
+                    if (!isSelfTrigger) {
+                        SoundSynth.playScream();
+                        triggerCorpseBroadcast({ victim: v ? v.name : 'Unknown', location: data.location });
+                    }
+
+                    if (activePlayer) updatePlayerConsoleView();
+                    updateDeathLogsUI();
+                    renderSimulatedPlayersDock();
+                    checkGameEndConditions();
+                    break;
+
+                case 'PHASE_CHANGE':
+                    if (data.phase === 'NIGHT') {
+                        document.getElementById('mobile-screen').classList.add('brightness-[0.25]');
+                        showSystemAlert("🌙 함선에 밤(소등)이 선언되었습니다. 고개를 숙이고 조용히 대기하십시오.", "error");
+                    } else {
+                        document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
+                        showSystemAlert("☀️ 아침이 밝았습니다! 상황판을 확인하고 자유 토론을 진행하세요.", "info");
+                    }
+                    break;
+
+                case 'GAME_RESET':
+                    gameState = "LOBBY";
+                    activePlayer = null;
+                    localStorage.removeItem('nfc_active_player_id');
+                    initializeDefaultPlayers(config.players.length);
+                    applyGameStateTransitionUI();
+                    renderLobbyPlayerList();
+                    renderSimulatedPlayersDock();
+                    updateNfcWriterSelectOptions();
+                    updateNfcWritePreview();
+                    showSystemAlert("방이 마스터에 의해 초기화되어 대기 상태로 복귀했습니다.", "info");
+                    break;
+            }
+        }
+
+        // Room control Modal action actions
+        function joinRoomAction() {
+            const input = document.getElementById('join-room-code-input').value.trim();
+            if (input.length !== 4 || isNaN(input)) {
+                alert("반드시 숫자 4자리를 정확하게 입력해 주십시오.");
+                return;
+            }
+            roomCode = input;
+            localStorage.setItem('nfc_room_code', roomCode);
+            document.getElementById('room-selection-modal').classList.add('hidden');
+            
+            // Connect and check if we have any queued NFC tag scanned prior to room setup
+            initMqttSync();
+        }
+
+        // Generate simple random 4-digit numeric code
+        function createRoomAction() {
+            const code = Math.floor(1000 + Math.random() * 9000).toString();
+            roomCode = code;
+            localStorage.setItem('nfc_room_code', roomCode);
+            document.getElementById('room-selection-modal').classList.add('hidden');
+            initMqttSync();
+            setViewMode('GM'); // Host set to GM Room overview dashboard by default
+        }
+
+        // Leave current channel cleanly
+        function leaveRoom() {
+            localStorage.removeItem('nfc_room_code');
+            localStorage.removeItem('nfc_active_player_id');
+            localStorage.removeItem('nsc_players_config');
+            location.reload();
+        }
+
+        // 🚀 [FIX]: Actually launch the game — assign roles, reset mission progress, broadcast GAME_START
+        function startGame() {
+            if (!isGM) {
+                showSystemAlert("GM 상황실에서만 게임을 시작할 수 있습니다.", "error");
+                return;
+            }
+
+            const totalCount = config.players.length;
+            const readyCount = config.players.filter(p => p.isReady).length;
+
+            if (totalCount === 0 || readyCount < totalCount) {
+                showSystemAlert("아직 NFC 태그를 받지 않은 대원이 있습니다. 모든 대원이 준비를 마쳐야 합니다.", "error");
+                return;
+            }
+
+            // Reset roles then reassign impostors fresh for this round
+            config.players.forEach(p => {
+                p.role = "CREWMATE";
+                p.isAlive = true;
+            });
+
+            let assigned = 0;
+            const targetImpostors = Math.min(config.impostorCount, totalCount - 1);
+            while (assigned < targetImpostors) {
+                const rand = Math.floor(Math.random() * totalCount);
+                if (config.players[rand].role !== "IMPOSTOR") {
+                    config.players[rand].role = "IMPOSTOR";
+                    assigned++;
+                }
+            }
+
+            // Reset mission progress and traps for a clean round start
+            // 🛡️ [FIX]: Guard totalRequired against 0/NaN so the instant-win bug can never recur
+            const safeTotal = parseInt(config.missions.totalRequired);
+            config.missions.totalRequired = (Number.isFinite(safeTotal) && safeTotal > 0) ? safeTotal : 40;
+            config.missions.completedCount = 0;
+            config.traps = {
+                MissionWire: { active: false, placedBy: null },
+                MissionReactor: { active: false, placedBy: null },
+                MissionAdmin: { active: false, placedBy: null }
+            };
+            config.deathLogs = [];
+
+            gameState = "IN_GAME";
+            applyGameStateTransitionUI();
+            renderSimulatedPlayersDock();
+            updateDeathLogsUI();
+
+            // Broadcast to every connected device so all phones flip to IN_GAME together
+            publishSyncEvent('GAME_START', {
+                players: config.players,
+                missions: config.missions
+            });
+
+            showSystemAlert("🚀 우주선이 출항했습니다! 모든 대원에게 역할이 비밀리에 통보되었습니다.", "info");
+        }
+
+        function applyGameStateTransitionUI() {
+            const lobbyScreen = document.getElementById('screen-lobby');
+            const gameScreen = document.getElementById('screen-game');
+            const overScreen = document.getElementById('screen-gameover');
+
+            if (gameState === "IN_GAME") {
+                lobbyScreen.classList.add('hidden');
+                gameScreen.classList.remove('hidden');
+                overScreen.classList.add('hidden');
+                
+                document.getElementById('gm-game-state').textContent = "실시간 수리 진행 중";
+                document.getElementById('gm-game-state').className = "text-emerald-400 font-bold uppercase text-[10px]";
+
+                document.getElementById('gm-master-actions').classList.remove('hidden');
+                document.getElementById('gm-lobby-actions').classList.add('hidden');
+                document.getElementById('gm-vote-actions').classList.remove('hidden');
+
+                if (activePlayer) {
+                    updatePlayerConsoleView();
+                }
+            } else if (gameState === "LOBBY") {
+                lobbyScreen.classList.remove('hidden');
+                gameScreen.classList.add('hidden');
+                overScreen.classList.add('hidden');
+
+                document.getElementById('gm-game-state').textContent = "대기실 세팅 중";
+                document.getElementById('gm-game-state').className = "text-cyan-400 font-bold uppercase text-[10px]";
+
+                document.getElementById('gm-master-actions').classList.add('hidden');
+                document.getElementById('gm-lobby-actions').classList.remove('hidden');
+                document.getElementById('gm-vote-actions').classList.add('hidden');
+                closeVoteEjectPanel();
+            } else if (gameState === "GAMEOVER") {
+                document.getElementById('gm-vote-actions').classList.add('hidden');
+                closeVoteEjectPanel();
+            }
+        }
+
+        // Setup base default players list (default 24 players, with 4 impostors)
+        function initializeDefaultPlayers(totalCount) {
+            config.players = [];
+            const defaultNames = [
+                "레드", "블루", "옐로", "그린", "퍼플", "오렌지", "네이비", "브라운", 
+                "화이트", "블랙", "핑크", "라임", "스카이", "민트", "베이지", "골드", 
+                "실버", "카키", "올리브", "피치", "로즈", "체리", "레몬", "아쿠아",
+                "그레이", "차콜", "마룬", "인디고", "코랄", "플럼", "티엘", "청록"
+            ];
+
+            for (let i = 0; i < totalCount; i++) {
+                config.players.push({
+                    id: `PLAYER_${i+1}`,
+                    name: `${defaultNames[i] || '크루'} P${i+1}`,
+                    role: "CREWMATE",
+                    isAlive: true,
+                    isReady: false
+                });
+            }
+
+            // Shuffle & Assign Impostors based on config scale
+            let assigned = 0;
+            const targetImpostors = config.impostorCount;
+            while (assigned < targetImpostors && totalCount > targetImpostors) {
+                const rand = Math.floor(Math.random() * totalCount);
+                if (config.players[rand].role !== "IMPOSTOR") {
+                    config.players[rand].role = "IMPOSTOR";
+                    assigned++;
+                }
+            }
+
+            config.traps = {
+                MissionWire: { active: false, placedBy: null },
+                MissionReactor: { active: false, placedBy: null },
+                MissionAdmin: { active: false, placedBy: null }
+            };
+            config.deathLogs = [];
+            closeCorpseBroadcast();
+            updateDeathLogsUI();
+        }
+
+        // Render Lobby names list (Synchronizes Game Start button states for all devices)
+        function renderLobbyPlayerList() {
+            const list = document.getElementById('lobby-player-list');
+            const readyCountDisp = document.getElementById('lobby-ready-count');
+            if (!list) return;
+            list.innerHTML = '';
+
+            const readyCount = config.players.filter(p => p.isReady).length;
+            const totalCount = config.players.length;
+            readyCountDisp.textContent = `${readyCount}/${totalCount} 완료`;
+
+            config.players.forEach(p => {
+                const li = document.createElement('li');
+                li.className = "flex justify-between items-center bg-slate-950 p-1.5 rounded border border-slate-800/50 mb-1 text-[11px]";
+                li.innerHTML = `
+                    <span class="font-medium truncate max-w-[120px]">${p.name}</span>
+                    <span class="${p.isReady ? 'text-cyan-400 font-bold' : 'text-slate-600'} text-[10px]">
+                        ${p.isReady ? '✓ 수령 완료' : 'NFC 미인식'}
+                    </span>
+                `;
+                list.appendChild(li);
+            });
+
+            // 🚀 [CRITICAL FIX]: Synchronize & Update Mobile Simulator "우주선 비행 개시" Button across ALL connected phones!
+            const btnStart = document.getElementById('btn-start-game');
+            if (btnStart) {
+                if (readyCount >= totalCount && totalCount > 0) {
+                    btnStart.removeAttribute('disabled');
+                    btnStart.className = "mt-3 w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded-lg text-xs font-bold tracking-wider scifi-font uppercase transition cursor-pointer neon-glow-cyan shrink-0";
+                    btnStart.textContent = "우주선 비행 개시 (게임 시작)";
+                } else {
+                    btnStart.setAttribute('disabled', 'true');
+                    btnStart.className = "mt-3 w-full bg-slate-800 text-slate-500 py-2.5 rounded-lg text-xs font-bold tracking-wider scifi-font uppercase transition border border-slate-700 cursor-not-allowed shrink-0";
+                    btnStart.textContent = "참석자 스캔 완료 대기";
+                }
+            }
+
+            // 🚀 [CRITICAL FIX]: Synchronize & Update Dedicated GM Panel Button for Easy Desktop/Tablet controls
+            const btnGmStart = document.getElementById('btn-gm-start-game');
+            if (btnGmStart) {
+                if (readyCount >= totalCount && totalCount > 0) {
+                    btnGmStart.removeAttribute('disabled');
+                    btnGmStart.className = "w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded text-xs font-bold scifi-font uppercase tracking-wide transition cursor-pointer neon-glow-cyan";
+                    btnGmStart.textContent = "우주선 비행 개시 (게임 시작)";
+                } else {
+                    btnGmStart.setAttribute('disabled', 'true');
+                    btnGmStart.className = "w-full bg-slate-800 text-slate-500 py-2.5 rounded text-xs font-bold scifi-font uppercase tracking-wide transition border border-slate-700 cursor-not-allowed";
+                    btnGmStart.textContent = "우주선 비행 개시 (모든 대원 준비 필요)";
+                }
+            }
+        }
+
+        // Render Simulated Players on GM Panel
+        function renderSimulatedPlayersDock() {
+            const grid = document.getElementById('sim-players-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            
+            config.players.forEach((p, idx) => {
+                const btn = document.createElement('button');
+                btn.onclick = () => simulateNfcScan(p.id);
+                btn.className = `flex flex-col justify-between bg-slate-900 border ${p.isAlive ? 'border-slate-800 hover:border-cyan-500/50' : 'border-red-950 opacity-60'} p-1.5 rounded text-left transition text-[10px]`;
+                
+                let statusText = p.isReady ? '준비완료' : '미스캔';
+                if (gameState !== "LOBBY") {
+                    statusText = p.isAlive ? (p.role === 'IMPOSTOR' ? '임포스터' : '크루') : '처치됨';
+                }
+
+                const roleColorClass = p.isAlive ? 
+                    (p.role === 'IMPOSTOR' && gameState !== "LOBBY" ? 'text-red-400 bg-red-950/40' : 'text-cyan-400 bg-cyan-950/40') : 
+                    'text-red-500 bg-slate-950';
+
+                btn.innerHTML = `
+                    <div class="flex items-center justify-between w-full">
+                        <span class="font-bold text-slate-200 truncate w-14">${p.name}</span>
+                    </div>
+                    <div class="flex justify-between items-center mt-1 text-[8px]">
+                        <span class="text-slate-500">P${idx+1}</span>
+                        <span class="${roleColorClass} px-1 rounded scale-90">${statusText}</span>
+                    </div>
+                `;
+                grid.appendChild(btn);
+            });
+
+            // Update GM Stats Counter realtime
+            document.getElementById('gm-total-p').textContent = `${config.players.length}명`;
+            document.getElementById('gm-total-imp').textContent = `${config.impostorCount}명`;
+            document.getElementById('gm-alive-crew').textContent = `${config.players.filter(p => p.role !== 'IMPOSTOR' && p.isAlive).length}명`;
+            document.getElementById('gm-completed-missions').textContent = `${config.missions.completedCount}회`;
+
+            // Draw trap indicators in GM simulator
+            for (const key in config.traps) {
+                const indicator = document.getElementById('trap-indicator-' + key);
+                if (indicator) {
+                    if (config.traps[key].active) {
+                        indicator.classList.remove('hidden');
+                    } else {
+                        indicator.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        // CORE NFC DECODER & INTERACTION ROUTER
+        function simulateNfcScan(actionTag) {
+            SoundSynth.playBeep(880, 'sine', 0.08); // Scan detection feedback sound
+
+            // Scenario 1: Scanning a Player Badge in Lobby (to register/reveal secret role)
+            if (gameState === "LOBBY") {
+                if (actionTag.startsWith("PLAYER_")) {
+                    handleLobbyPlayerScan(actionTag);
+                } else {
+                    // 🧪 [SANDBOX UPGRADE]: Allow testing mission mini-games directly in LOBBY for GM testing!
+                    if (actionTag.startsWith("Mission")) {
+                        openMissionArena(actionTag);
+                        showSystemAlert(`${getStationName(actionTag)} 미션을 미리 테스트합니다. 실제 수리 진행도는 게임이 시작된 이후 반영됩니다.`, "info");
+                    } else {
+                        showSystemAlert("대기실 상태입니다. 각 참가자의 명찰(NFC)을 차례대로 리드하여 비밀 역할을 수령해 주세요.", "error");
+                    }
+                }
+                return;
+            }
+
+            // Scenario 2: Scan triggered during active live game
+            if (gameState === "IN_GAME") {
+                // If scanned a player badge during active gameplay
+                if (actionTag.startsWith("PLAYER_")) {
+                    // Solo sandbox view swapping feature!
+                    if (dockActionMode === "SWAP") {
+                        const target = config.players.find(p => p.id === actionTag);
+                        if (target) {
+                            activePlayer = target;
+                            localStorage.setItem('nfc_active_player_id', target.id);
+                            updatePlayerConsoleView();
+                            showSystemAlert(`[시점 전환] 대원 ${target.name} 님의 모바일 화면 시야로 전환했습니다.`, "info");
+                        }
+                    } else {
+                        handleActiveGamePlayerBadgeScan(actionTag);
+                    }
+                    return;
+                }
+
+                // Mini-Mission Tag Scan (With Ambush Trap logic check!)
+                if (actionTag.startsWith("Mission")) {
+                    handleMissionTagScan(actionTag);
+                    return;
+                }
+            }
+        }
+
+        // Lobby badge scanning process (Local & Sync modes handled elegantly)
+        function handleLobbyPlayerScan(playerId) {
+            const player = config.players.find(p => p.id === playerId);
+            if (!player) return;
+
+            activePlayer = player;
+            localStorage.setItem('nfc_active_player_id', player.id);
+
+            // 🛡️ [FIX]: No GM gatekeeper needed — this device marks itself ready directly and broadcasts
+            player.isReady = true;
+            showSystemAlert(`${player.name}님의 NFC 정보 식별 성공. 비밀 역할을 확인하세요!`, "info");
+            SoundSynth.playSuccess();
+            renderLobbyPlayerList();
+            renderSimulatedPlayersDock();
+            revealSecretRoleScreen(player);
+
+            if (roomCode) {
+                publishSyncEvent('PLAYER_READY', { playerId: playerId });
+            }
+        }
+
+        // Show player secret card
+        function revealSecretRoleScreen(player) {
+            const lobbyScreen = document.getElementById('screen-lobby');
+            const gameScreen = document.getElementById('screen-game');
+            const activeTitle = document.getElementById('game-active-title');
+            const activeDesc = document.getElementById('game-active-desc');
+            const activeIcon = document.getElementById('game-active-icon');
+
+            // View switch
+            lobbyScreen.classList.add('hidden');
+            gameScreen.classList.remove('hidden');
+
+            const nameBadge = document.getElementById('player-name-badge');
+            const roleBadge = document.getElementById('player-role-badge');
+            nameBadge.textContent = player.name;
+
+            if (player.role === "IMPOSTOR") {
+                roleBadge.textContent = "임포스터 (Impostor)";
+                roleBadge.className = "text-xs font-black scifi-font text-red-500 animate-pulse";
+                activeIcon.textContent = "😈";
+                activeTitle.innerHTML = `<span class="text-red-500 font-extrabold text-base">당신은 임포스터입니다!</span>`;
+                activeDesc.innerHTML = `정체를 숨기고 크루원인 척 행동하세요.<br><br><strong class="text-red-400">공격 방법 ①(직접 암살):</strong> 살아있는 크루원의 명찰(NFC)을 직접 태그하면 그 자리에서 즉시 제거됩니다.<br><br><strong class="text-red-400">공격 방법 ②(덫 설치):</strong> 미션 구역 스티커(전기 배선실 / 원자로실 / 관리실 데스크) 중 한 곳에 태그하면 그 구역에 보이지 않는 덫이 설치되고, 이후 그 구역을 태그하는 크루원이 자동으로 즉시 사망합니다. (한 번에 한 구역만 오염 가능)`;
+                document.getElementById('impostor-kill-btn').style.display = "flex";
+            } else {
+                roleBadge.textContent = "크루원 (Crewmate)";
+                roleBadge.className = "text-xs font-black scifi-font text-emerald-400";
+                activeIcon.textContent = "👨‍🚀";
+                activeTitle.innerHTML = `<span class="text-emerald-400 font-extrabold text-base">당신은 크루원입니다!</span>`;
+                activeDesc.textContent = "우주선 곳곳의 미션 구역(NFC)에 방문하여 스마트폰을 태그한 뒤 할당된 임무를 조속히 정비하여 보수 완수도를 100%까지 채우십시오.";
+                document.getElementById('impostor-kill-btn').style.display = "none";
+            }
+
+            // Seal secret role back to lobby after 6 seconds
+            setTimeout(() => {
+                if (gameState === "LOBBY") {
+                    gameScreen.classList.add('hidden');
+                    lobbyScreen.classList.remove('hidden');
+                }
+            }, 6000);
+        }
+
+        // Active tagging during gameplay
+        function handleActiveGamePlayerBadgeScan(scannedPlayerId) {
+            const scannedPlayer = config.players.find(p => p.id === scannedPlayerId);
+            if (!scannedPlayer) return;
+
+            // Scenario A: Scanned device user is an alive Impostor -> Kills the victim physically! (Fallback)
+            if (activePlayer && activePlayer.role === "IMPOSTOR" && activePlayer.isAlive) {
+                if (scannedPlayer.id === activePlayer.id) {
+                    showSystemAlert("자신의 NFC 배지는 자해할 수 없습니다.", "error");
+                    return;
+                }
+                if (!scannedPlayer.isAlive) {
+                    showSystemAlert("이미 추방(제거)된 상태의 대원 명찰입니다.", "error");
+                    return;
+                }
+                if (scannedPlayer.role === "IMPOSTOR") {
+                    showSystemAlert("동료 임포스터는 지목할 수 없습니다.", "error");
+                    return;
+                }
+
+                // 🛡️ [FIX]: No GM gatekeeper needed — this device processes the kill directly and broadcasts
+                scannedPlayer.isAlive = false;
+                const log = {
+                    victim: scannedPlayer.name,
+                    location: "근거리 물리 암살",
+                    time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                };
+                config.deathLogs.unshift(log);
+
+                publishSyncEvent('PLAYER_DIED', {
+                    victimId: scannedPlayer.id,
+                    location: "근거리 물리 암살",
+                    deathLogs: config.deathLogs,
+                    traps: config.traps
+                });
+
+                showSystemAlert(`😈 [근거리 암살 성공] ${scannedPlayer.name} 님을 제거했습니다!`, "error");
+                SoundSynth.playScream();
+                triggerCorpseBroadcast({ victim: scannedPlayer.name, location: "근거리 물리 암살" });
+                updateDeathLogsUI();
+                renderSimulatedPlayersDock();
+                checkGameEndConditions();
+            } else {
+                // Scenario B: Ordinary swap device focus to scanned player badge
+                activePlayer = scannedPlayer;
+                localStorage.setItem('nfc_active_player_id', scannedPlayer.id);
+                updatePlayerConsoleView();
+                showSystemAlert("단말기가 대원 [" + scannedPlayer.name + "] 님의 시야 및 상태 모드로 자동 전환되었습니다.", "info");
+            }
+        }
+
+        // Handles Station Trap placement and detection mechanics!
+        function handleMissionTagScan(stationId) {
+            // 🧪 [SANDBOX GUEST EXCEPTION]: If no player is selected (null activePlayer / Spectator mode), allow direct mission entry!
+            if (!activePlayer) {
+                openMissionArena(stationId);
+                showSystemAlert(`${getStationName(stationId)} 수리 모드를 관전/시뮬레이션 체험합니다.`, "info");
+                return;
+            }
+
+            // IMPOSTOR: Plant a Trap
+            // 🛡️ [FIX]: No GM gatekeeper needed — this device processes its own action and broadcasts the result
+            if (activePlayer.role === "IMPOSTOR" && activePlayer.isAlive) {
+                if (config.traps[stationId].active) {
+                    showSystemAlert(`이미 이곳 ${getStationName(stationId)} 구역에 안전장치를 해제한 덫이 매설되어 있습니다. 다른 곳을 오염시키세요.`, "error");
+                    return;
+                }
+
+                config.traps[stationId] = { active: true, placedBy: activePlayer.id };
+                publishSyncEvent('TRAP_PLACED', {
+                    stationId: stationId,
+                    placedBy: activePlayer.id
+                });
+
+                showSystemAlert(`😈 [구역 오염 완료] ${getStationName(stationId)}에 오염 지뢰를 가설했습니다!`, "error");
+                return;
+            }
+
+            // CREWMATE: Check for Trap before starting game
+            // 🛡️ [FIX]: No GM gatekeeper needed — this device processes its own death and broadcasts the result
+            if (activePlayer.role === "CREWMATE" && activePlayer.isAlive) {
+                if (config.traps[stationId].active) {
+                    // Trigger Trap! Crewmate Dies
+                    activePlayer.isAlive = false;
+                    const log = {
+                        victim: activePlayer.name,
+                        location: getStationName(stationId),
+                        time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    };
+                    config.deathLogs.unshift(log);
+                    config.traps[stationId] = { active: false, placedBy: null };
+
+                    publishSyncEvent('PLAYER_DIED', {
+                        victimId: activePlayer.id,
+                        location: getStationName(stationId),
+                        deathLogs: config.deathLogs,
+                        traps: config.traps
+                    });
+
+                    SoundSynth.playScream();
+                    triggerCorpseBroadcast({ victim: activePlayer.name, location: getStationName(stationId) });
+                    updateDeathLogsUI();
+                    updatePlayerConsoleView();
+                    checkGameEndConditions();
+                    return;
+                }
+            }
+
+            // If no trap or player is already dead (ghost can play without traps affecting them)
+            openMissionArena(stationId);
+        }
+
+        // Redraw player dashboard on device view
+        function updatePlayerConsoleView() {
+            const nameBadge = document.getElementById('player-name-badge');
+            const roleBadge = document.getElementById('player-role-badge');
+            const activeTitle = document.getElementById('game-active-title');
+            const activeDesc = document.getElementById('game-active-desc');
+            const activeIcon = document.getElementById('game-active-icon');
+
+            if (activePlayer) {
+                // 🛡️ [SECURITY UPDATE]: Hide the GM Switcher tab completely if they are a Player
+                document.getElementById('view-mode-controls').classList.add('hidden');
+                setViewMode('PLAYER');
+            } else {
+                // If they are the PC Host / GM, keep it visible
+                document.getElementById('view-mode-controls').classList.remove('hidden');
+                
+                // 🛡️ Reset screen layout to Spectator view cleanly to prevent null pointer crashes!
+                if (nameBadge) nameBadge.textContent = "관전 중 (GM 마스터)";
+                if (roleBadge) {
+                    roleBadge.textContent = "상황 통제실";
+                    roleBadge.className = "text-xs font-black scifi-font text-cyan-400";
+                }
+                if (activeIcon) activeIcon.textContent = "👑";
+                if (activeTitle) activeTitle.innerHTML = `<span class="text-cyan-400 font-bold text-xs">함선 모니터링 가동 중</span>`;
+                if (activeDesc) activeDesc.textContent = "참가자들의 대기 등록, 생존 상황, 밤 소등 선언 및 실시간 미션 복구 진행률을 중앙에서 모니터링하고 제어하십시오.";
+                return; // HALT
+            }
+
+            if (!nameBadge || !roleBadge) return;
+            nameBadge.textContent = activePlayer.name;
+
+            if (!activePlayer.isAlive) {
+                roleBadge.textContent = "아웃 (Dead)";
+                roleBadge.className = "text-xs font-black scifi-font text-slate-500 animate-pulse";
+                activeIcon.textContent = "👻";
+                activeTitle.innerHTML = `<span class="text-red-500 font-extrabold text-base">당신은 오염 처단되었습니다!</span>`;
+                activeDesc.innerHTML = `<span class="text-xs text-slate-400">구역에 매설되어 있던 임포스터의 덫에 기계가 연동 오염되어 물리 사망 판정을 받았습니다. 몸조심 하십시오. 영혼 상태에서도 미션을 찍어 복구를 보조할 수 있습니다.</span>`;
+                document.getElementById('impostor-kill-btn').style.display = "none";
+                updateMissionGlobalProgressBar();
+                return;
+            }
+
+            if (activePlayer.role === "IMPOSTOR") {
+                roleBadge.textContent = "임포스터 (Impostor)";
+                roleBadge.className = "text-xs font-black scifi-font text-red-500";
+                activeIcon.textContent = "😈";
+                activeTitle.innerHTML = `<span class="text-red-400 font-bold text-xs">구역 덫 설치 모드 가동 중</span>`;
+                activeDesc.innerHTML = `<strong class="text-red-400">전기 배선실 / 원자로실 / 관리실 데스크</strong> 중 한 곳의 NFC 스티커를 자신의 단말기로 태그하면 그 구역에 <strong class="text-red-400">오염 지뢰(덫)</strong>가 매복 매설됩니다. 이후 그 구역을 태그한 크루원은 즉시 사망 처리됩니다. (한 번에 한 구역만 오염 가능)`;
+                document.getElementById('impostor-kill-btn').style.display = "flex";
+            } else {
+                roleBadge.textContent = "크루원 (Crewmate)";
+                roleBadge.className = "text-xs font-black scifi-font text-emerald-400";
+                activeIcon.textContent = "👨‍🚀";
+                activeTitle.innerHTML = `<span class="text-slate-200 font-bold text-xs">시설 안전 복구 명령 활성</span>`;
+                activeDesc.textContent = "각 부스에 지정 부착된 3종의 전자기실 NFC 스티커를 태그하여 미니 보수 작업을 진행해 게이지를 꽉 채우십시오. 오염된 장소를 찍지 않게 주의하세요!";
+                document.getElementById('impostor-kill-btn').style.display = "none";
+            }
+
+            updateMissionGlobalProgressBar();
+        }
+
+        // Realtime Global progress updates
+        function updateMissionGlobalProgressBar() {
+            const total = config.missions.totalRequired;
+            const current = config.missions.completedCount;
+            const pct = Math.min(100, Math.round((current / total) * 100));
+
+            document.getElementById('crew-progress-text').textContent = `${pct}%`;
+            document.getElementById('crew-progress-bar').style.width = `${pct}%`;
+            document.getElementById('crew-progress-sub').textContent = `완료한 총 수리 횟수: ${current} / ${total}회`;
+            document.getElementById('gm-completed-missions').textContent = `${current}/${total}회`;
+
+            if (pct >= 100) {
+                triggerGameOver("CREWMATES_WIN");
+            }
+        }
+
+        // Transition game to End screen
+        function triggerGameOver(winner) {
+            gameState = "GAMEOVER";
+            document.getElementById('gm-game-state').textContent = "게임 종료";
+            document.getElementById('gm-game-state').className = "text-slate-500 font-bold uppercase text-[10px]";
+
+            document.getElementById('screen-lobby').classList.add('hidden');
+            document.getElementById('screen-game').classList.add('hidden');
+            document.getElementById('screen-mission').classList.add('hidden');
+            document.getElementById('screen-gameover').classList.remove('hidden');
+
+            const emoji = document.getElementById('gameover-emoji');
+            const title = document.getElementById('gameover-title');
+            const desc = document.getElementById('gameover-desc');
+            const summary = document.getElementById('gameover-summary');
+
+            summary.innerHTML = '';
+
+            if (winner === "CREWMATES_WIN") {
+                SoundSynth.playSuccess();
+                emoji.textContent = "🏆";
+                title.textContent = "크루원 대승리!";
+                title.className = "scifi-font text-xl font-black text-emerald-400 animate-bounce";
+                desc.textContent = "크루원 전원이 합심하여 지정 목표 수리 작업을 완벽히 끝마치고 임포스터의 파괴 공작으로부터 함선을 사수해 비행 경로를 복원했습니다!";
+            } else {
+                SoundSynth.playError();
+                emoji.textContent = "💀";
+                title.textContent = "임포스터 침략 성공!";
+                title.className = "scifi-font text-xl font-black text-red-500 animate-pulse";
+                desc.textContent = "우주선 보수를 방해하고, 크루원 대원들을 보이지 않게 효과적으로 섬멸하여 행성 탈취 임무를 달성했습니다.";
+            }
+
+            // Append detailed results info
+            config.players.forEach((p, idx) => {
+                const item = document.createElement('div');
+                item.className = "flex justify-between py-1 border-b border-slate-800/50 text-[10px]";
+                item.innerHTML = `
+                    <span class="font-semibold text-slate-300">P${idx+1} ${p.name}</span>
+                    <span>
+                        역할: <strong class="${p.role === 'IMPOSTOR' ? 'text-red-400' : 'text-emerald-400'}">${p.role}</strong> | 
+                        상태: <strong class="${p.isAlive ? 'text-emerald-400' : 'text-red-500'}">${p.isAlive ? '생존' : '제거됨'}</strong>
+                    </span>
+                `;
+                summary.appendChild(item);
+            });
+        }
+
+        // Full reset of states to restart
+        function resetToLobby() {
+            // Re-shuffle roles and keep the customized scale of players cleanly in-memory
+            initializeDefaultPlayers(config.players.length);
+            saveConfigToLocalStorage();
+
+            // Notify everyone of the reset so they go back to the lobby state without refreshes
+            publishSyncEvent('GAME_RESET', {});
+
+            gameState = "LOBBY";
+            activePlayer = null;
+            localStorage.removeItem('nfc_active_player_id');
+            applyGameStateTransitionUI();
+
+            renderLobbyPlayerList();
+            renderSimulatedPlayersDock();
+            updateNfcWriterSelectOptions();
+            updateNfcWritePreview();
+            
+            showSystemAlert("대기실 상태로 부드럽게 초기화 완료되었습니다.", "info");
+        }
+
+        // Impostor kill simulated button helper
+        function openImpostorKillAction() {
+            if (activePlayer.role !== "IMPOSTOR" || !activePlayer.isAlive) return;
+
+            const liveCrews = config.players.filter(p => p.role !== "IMPOSTOR" && p.isAlive);
+            if (liveCrews.length === 0) return;
+
+            let html = `<div class="space-y-1.5 w-full text-left">
+                <span class="text-[9px] text-slate-400 block mb-1">근거리 수사 대원 1명을 즉각 현장 추방 처리합니다. (기밀 유지)</span>
+                <div class="grid grid-cols-2 gap-1.5 max-h-32 overflow-y-auto bg-slate-950 p-1.5 rounded border border-slate-800">`;
+            
+            liveCrews.forEach(c => {
+                html += `
+                    <button onclick="executeSimulatedKill('${c.id}')" class="bg-red-950/80 hover:bg-red-900 border border-red-800 text-red-200 py-1 px-2 rounded text-[10px] flex justify-between items-center transition truncate">
+                        <span>${c.name}</span>
+                        <span class="scale-90 text-red-400">☠️ 강제제외</span>
+                    </button>
+                `;
+            });
+            html += `</div></div>`;
+
+            const desc = document.getElementById('game-active-desc');
+            desc.innerHTML = html;
+        }
+
+        function executeSimulatedKill(targetId) {
+            simulateNfcScan(targetId);
+            setTimeout(() => {
+                updatePlayerConsoleView();
+            }, 800);
+        }
+
+        // Realtime balance check for Win/Loss
+        function checkGameEndConditions() {
+            const aliveImpostors = config.players.filter(p => p.role === "IMPOSTOR" && p.isAlive).length;
+            const aliveCrewmates = config.players.filter(p => p.role !== "IMPOSTOR" && p.isAlive).length;
+
+            if (aliveImpostors === 0) {
+                triggerGameOver("CREWMATES_WIN");
+            } else if (aliveImpostors >= aliveCrewmates) {
+                triggerGameOver("IMPOSTORS_WIN");
+            }
+        }
+
+        // 🗳️ [VOTE EJECT]: Offline (show-of-hands/verbal) vote — GM enters the agreed result directly
+        function openVoteEjectPanel() {
+            if (!isGM) {
+                showSystemAlert("GM 상황실에서만 투표 결과를 입력할 수 있습니다.", "error");
+                return;
+            }
+            if (gameState !== "IN_GAME") {
+                showSystemAlert("게임이 진행 중일 때만 투표 결과를 입력할 수 있습니다.", "error");
+                return;
+            }
+
+            const grid = document.getElementById('vote-eject-grid');
+            grid.innerHTML = '';
+
+            const aliveCrew = config.players.filter(p => p.isAlive);
+            if (aliveCrew.length === 0) {
+                showSystemAlert("생존한 대원이 없습니다.", "error");
+                return;
+            }
+
+            aliveCrew.forEach(p => {
+                const btn = document.createElement('button');
+                btn.onclick = () => confirmVoteEject(p.id);
+                btn.className = "bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-200 py-1.5 px-2 rounded text-[10px] font-semibold truncate transition";
+                btn.textContent = p.name;
+                grid.appendChild(btn);
+            });
+
+            document.getElementById('vote-eject-panel').classList.remove('hidden');
+        }
+
+        function closeVoteEjectPanel() {
+            const panel = document.getElementById('vote-eject-panel');
+            if (panel) panel.classList.add('hidden');
+        }
+
+        function confirmVoteEject(ejectedId) {
+            if (!isGM) {
+                showSystemAlert("GM 상황실에서만 투표 결과를 입력할 수 있습니다.", "error");
+                return;
+            }
+
+            // No-eject case: tie or majority abstain
+            if (!ejectedId) {
+                closeVoteEjectPanel();
+                publishSyncEvent('PHASE_CHANGE', { phase: 'MORNING' });
+                showSystemAlert("🗳️ 투표 결과, 동점 또는 기권으로 아무도 추방되지 않았습니다.", "info");
+                return;
+            }
+
+            const ejected = config.players.find(p => p.id === ejectedId);
+            if (!ejected || !ejected.isAlive) {
+                showSystemAlert("이미 제거되었거나 존재하지 않는 대원입니다.", "error");
+                return;
+            }
+
+            // 🛡️ GM processes this device's own action directly and broadcasts — consistent with the rest of the game
+            ejected.isAlive = false;
+            const log = {
+                victim: ejected.name,
+                location: "회의 투표 추방",
+                time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            };
+            config.deathLogs.unshift(log);
+            closeVoteEjectPanel();
+
+            publishSyncEvent('PLAYER_DIED', {
+                victimId: ejected.id,
+                location: "회의 투표 추방",
+                deathLogs: config.deathLogs,
+                traps: config.traps
+            });
+
+            showSystemAlert(`🗳️ 투표 결과, ${ejected.name} 님이 추방되었습니다.`, "error");
+            SoundSynth.playError();
+            updateDeathLogsUI();
+            renderSimulatedPlayersDock();
+            checkGameEndConditions();
+        }
+
+        // MASTER CONTROL ACTIONS (NIGHT / MORNING PHASES)
+        function masterTriggerNight() {
+            if (gameState !== "IN_GAME") {
+                showSystemAlert("게임이 진행 중일 때만 밤을 선언할 수 있습니다.", "error");
+                return;
+            }
+            publishSyncEvent('PHASE_CHANGE', { phase: 'NIGHT' });
+            showSystemAlert("함선에 밤(소등)이 성공적으로 선언되었습니다.", "info");
+        }
+
+        // Master Trigger Morning
+        function masterTriggerMorning() {
+            if (gameState !== "IN_GAME") {
+                showSystemAlert("게임이 진행 중일 때만 아침을 선언할 수 있습니다.", "error");
+                return;
+            }
+            publishSyncEvent('PHASE_CHANGE', { phase: 'MORNING' });
+            showSystemAlert("함선에 아침이 성공적으로 선언되었습니다.", "info");
+        }
+
+        // MINI GAME ARENA LOGIC
+        function openMissionArena(stationId) {
+            // Switch state to active mini game
+            const screenGame = document.getElementById('screen-game');
+            const screenMission = document.getElementById('screen-mission');
+            const currentName = document.getElementById('current-mission-name');
+            const currentDesc = document.getElementById('current-mission-desc');
+            const stationBadge = document.getElementById('mission-station-id');
+            const arena = document.getElementById('mission-game-arena');
+
+            screenGame.classList.add('hidden');
+            screenMission.classList.remove('hidden');
+            
+            // 🧪 [SANDBOX GUEST DOM FIX]: Safely hide lobby screen when testing in LOBBY state!
+            const screenLobby = document.getElementById('screen-lobby');
+            if (screenLobby) screenLobby.classList.add('hidden');
+
+            stationBadge.textContent = stationId === "MissionWire" ? "전기 배선실 (A1)" : stationId === "MissionReactor" ? "원자로실 (B3)" : "관리실 데스크 (C2)";
+
+            // Load selected game
+            if (stationId === "MissionWire") {
+                currentName.textContent = "⚡ 전기 배선 매칭 수리";
+                currentDesc.textContent = "좌측 단자가 깜빡이면 알맞은 색 단자를 찾아 연결해 주세요.";
+                loadWireMission(arena);
+            } else if (stationId === "MissionReactor") {
+                currentName.textContent = "🔮 원자로 동력 그리드 보수";
+                currentDesc.textContent = "원자로에서 방출한 깜빡임 타일의 일시적 순서를 외워 그대로 모사하십시오.";
+                loadReactorMission(arena);
+            } else if (stationId === "MissionAdmin") {
+                currentName.textContent = "📇 보안 관리실 단말기 인증";
+                currentDesc.textContent = "보안 마그네틱 슬라이더 카드를 너무 빠르거나 느리지 않은 속도로 긁어 넘기세요.";
+                loadAdminMission(arena);
+            }
+        }
+
+        // Game 1: Wire Matcher
+        function loadWireMission(container) {
+            // 🎚️ [DIFFICULTY UP]: 3 pairs → 5 pairs, colors shuffled fresh each time (no more memorizable fixed order)
+            const wireColors = [
+                { key: 'red', label: 'RED', cls: 'bg-red-600' },
+                { key: 'blue', label: 'BLUE', cls: 'bg-blue-600' },
+                { key: 'yellow', label: 'YELLOW', cls: 'bg-yellow-500' },
+                { key: 'green', label: 'GREEN', cls: 'bg-emerald-600' },
+                { key: 'purple', label: 'PURPLE', cls: 'bg-purple-600' }
+            ];
+            const leftOrder = [...wireColors].sort(() => Math.random() - 0.5);
+            const rightOrder = [...wireColors].sort(() => Math.random() - 0.5);
+            completedConnections = 0;
+
+            const renderSide = (arr, side) => arr.map(w =>
+                `<button onclick="selectWire('${side}', '${w.key}', this)" class="w-14 h-6 rounded ${w.cls} border border-slate-700 font-bold text-[9px] text-white">${w.label}</button>`
+            ).join('');
+
+            container.innerHTML = `
+                <div class="flex justify-between items-center h-full space-x-6 py-2">
+                    <div class="flex flex-col justify-around h-full space-y-2.5" id="wire-left-side">
+                        ${renderSide(leftOrder, 'left')}
+                    </div>
+                    <div class="flex-1 flex flex-col justify-center items-center">
+                        <span class="text-slate-500 text-[9px] text-center">전기 케이블 연동 단자</span>
+                        <div id="wire-connect-line" class="text-cyan-400 font-bold text-[10px] mt-2 text-center">양쪽의 올바른 짝을 맞추세요 (0/5)</div>
+                    </div>
+                    <div class="flex flex-col justify-around h-full space-y-2.5" id="wire-right-side">
+                        ${renderSide(rightOrder, 'right')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Select Wire interactive match
+        function selectWire(side, color, element) {
+            if (side === 'left') {
+                selectedWireLeft = color;
+                const btns = document.querySelectorAll('#wire-left-side button');
+                btns.forEach(b => b.classList.remove('border-white', 'border-2'));
+                element.classList.add('border-white', 'border-2');
+                SoundSynth.playBeep(440, 'sine', 0.05);
+            } else if (side === 'right' && selectedWireLeft) {
+                if (selectedWireLeft === color) {
+                    completedConnections++;
+                    SoundSynth.playBeep(600, 'sine', 0.1);
+                    document.getElementById('wire-connect-line').textContent = `${completedConnections}/5 연결 됨!`;
+                    element.setAttribute('disabled', 'true');
+                    element.classList.add('opacity-30');
+                    
+                    const leftBtns = document.querySelectorAll('#wire-left-side button');
+                    leftBtns.forEach(b => {
+                        if (b.textContent.toLowerCase() === color) {
+                            b.setAttribute('disabled', 'true');
+                            b.classList.add('opacity-30');
+                            b.classList.remove('border-white', 'border-2');
+                        }
+                    });
+
+                    selectedWireLeft = null;
+
+                    if (completedConnections >= 5) {
+                        completedConnections = 0;
+                        handleMissionCompletion();
+                    }
+                } else {
+                    SoundSynth.playError();
+                    document.getElementById('wire-connect-line').textContent = "단선 에러! 연결 불일치";
+                    selectedWireLeft = null;
+                    const leftBtns = document.querySelectorAll('#wire-left-side button');
+                    leftBtns.forEach(b => b.classList.remove('border-white', 'border-2'));
+                }
+            }
+        }
+
+        // Game 2: Simon Says sequence
+        // 🎚️ [DIFFICULTY UP]: 3 steps → 5~6 steps, speeds up each round, must clear 3 rounds in a row to finish
+        function loadReactorMission(container) {
+            simonRound = 0;
+            startSimonRound(container);
+        }
+
+        function startSimonRound(container) {
+            simonRound++;
+            const sequenceLength = 4 + simonRound; // round 1: 5, round 2: 6, round 3: 7
+            simonSequence = Array.from({ length: sequenceLength }, () => Math.floor(Math.random() * 4));
+            playerSequence = [];
+
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center space-y-3">
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${simonRound} / ${SIMON_TOTAL_ROUNDS}</span>
+                    <span class="text-[9px] text-slate-500 uppercase tracking-wider font-bold">깜빡이는 순서를 완벽하게 모사하십시오 (${sequenceLength}단계)</span>
+                    <div class="grid grid-cols-2 gap-2 w-28 h-28">
+                        <button onclick="pressSimonGrid(0)" id="simon-0" class="w-full h-full bg-slate-800 rounded border border-slate-700 active:bg-cyan-500 transition-colors"></button>
+                        <button onclick="pressSimonGrid(1)" id="simon-1" class="w-full h-full bg-slate-800 rounded border border-slate-700 active:bg-cyan-500 transition-colors"></button>
+                        <button onclick="pressSimonGrid(2)" id="simon-2" class="w-full h-full bg-slate-800 rounded border border-slate-700 active:bg-cyan-500 transition-colors"></button>
+                        <button onclick="pressSimonGrid(3)" id="simon-3" class="w-full h-full bg-slate-800 rounded border border-slate-700 active:bg-cyan-500 transition-colors"></button>
+                    </div>
+                    <button onclick="playSimonSequence()" class="bg-cyan-950 border border-cyan-500/40 text-cyan-400 py-0.5 px-2 rounded text-[10px]">재생 ▷</button>
+                </div>
+            `;
+            setTimeout(() => playSimonSequence(), 500);
+        }
+
+        // Game 3: Security Card Swipe
+        // 🎚️ [DIFFICULTY UP]: must clear ADMIN_TOTAL_ROUNDS in a row, valid timing window narrows each round
+        function loadAdminMission(container) {
+            adminRound = 0;
+            startAdminRound(container);
+        }
+
+        function startAdminRound(container) {
+            adminRound++;
+            container.innerHTML = `
+                <div class="flex flex-col justify-around items-center h-full space-y-3 py-2">
+                    <span class="text-[9px] text-cyan-400 uppercase tracking-wider font-bold">라운드 ${adminRound} / ${ADMIN_TOTAL_ROUNDS}</span>
+                    <span class="text-[9px] text-slate-500 uppercase">보안 리더기 수평 스와이프</span>
+                    
+                    <!-- ID Card Drag Slot -->
+                    <div class="w-full bg-slate-950 border border-slate-800 h-8 rounded-lg relative flex items-center overflow-hidden">
+                        <div class="h-full bg-cyan-950 w-2 left-0 absolute"></div>
+                        <div class="h-full bg-cyan-950 w-2 right-0 absolute"></div>
+                        <span class="text-[8px] text-slate-600 text-center w-full">◀ CARD SLIDER CHANNEL ▶</span>
+                    </div>
+
+                    <!-- Swipe actions -->
+                    <div class="w-full flex space-x-2">
+                        <button onmousedown="startSwipe()" ontouchstart="startSwipe()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-2 rounded border border-slate-700 text-[10px] font-bold text-slate-300">
+                            1. 카드 진입 (클릭)
+                        </button>
+                        <button onmouseup="endSwipe()" ontouchend="endSwipe()" class="flex-1 bg-cyan-600 hover:bg-cyan-500 py-2 rounded text-[10px] font-bold text-slate-950">
+                            2. 통과 이탈 (클릭)
+                        </button>
+                    </div>
+
+                    <div id="swipe-feedback" class="text-[10px] text-slate-400 font-bold">인식 대기 중...</div>
+                </div>
+            `;
+        }
+
+        function playSimonSequence() {
+            // 🎚️ [DIFFICULTY UP]: playback speeds up each round (round 1: 400ms, round 2: 320ms, round 3: 260ms)
+            const stepDelay = Math.max(260, 400 - (simonRound - 1) * 80);
+            let delay = 0;
+            simonSequence.forEach((val) => {
+                setTimeout(() => {
+                    const el = document.getElementById('simon-' + val);
+                    if (el) {
+                        el.classList.add('bg-cyan-400');
+                        SoundSynth.playBeep(520 + (val * 100), 'sine', 0.15);
+                        setTimeout(() => el.classList.remove('bg-cyan-400'), Math.min(250, stepDelay - 50));
+                    }
+                }, delay);
+                delay += stepDelay;
+            });
+        }
+
+        function pressSimonGrid(gridIdx) {
+            playerSequence.push(gridIdx);
+            SoundSynth.playBeep(520 + (gridIdx * 100), 'sine', 0.1);
+            const idx = playerSequence.length - 1;
+            if (playerSequence[idx] !== simonSequence[idx]) {
+                SoundSynth.playError();
+                showSystemAlert(`격자 암기 실패! 라운드 ${simonRound}부터 처음부터 다시 시도하십시오.`, "error");
+                playerSequence = [];
+                setTimeout(() => playSimonSequence(), 600);
+                return;
+            }
+            if (playerSequence.length === simonSequence.length) {
+                // 🎚️ [DIFFICULTY UP]: must clear SIMON_TOTAL_ROUNDS in a row to finish the mission
+                if (simonRound >= SIMON_TOTAL_ROUNDS) {
+                    handleMissionCompletion();
+                } else {
+                    showSystemAlert(`✅ 라운드 ${simonRound} 통과! 다음 라운드를 준비하세요.`, "info");
+                    const arena = document.getElementById('mission-game-arena');
+                    setTimeout(() => startSimonRound(arena), 900);
+                }
+            }
+        }
+
+        function startSwipe() {
+            swipeStart = Date.now();
+            document.getElementById('swipe-feedback').textContent = "마그네틱 인식하는 중...";
+            SoundSynth.playBeep(440, 'sine', 0.05);
+        }
+
+        function endSwipe() {
+            if (swipeStart === 0) return;
+            const diff = Date.now() - swipeStart;
+            swipeStart = 0;
+            const f = document.getElementById('swipe-feedback');
+
+            // 🎚️ [DIFFICULTY UP]: target window narrows each round (round 1: 350-850ms, round 2: 400-750ms, round 3: 450-650ms)
+            const windowHalfWidth = Math.max(100, 250 - (adminRound - 1) * 75);
+            const center = 600;
+            const minMs = center - windowHalfWidth;
+            const maxMs = center + windowHalfWidth;
+
+            if (diff < minMs) {
+                SoundSynth.playError();
+                f.className = "text-[10px] text-red-400 font-bold";
+                f.textContent = `실패: 너무 빠름 (${diff}ms) — 라운드 ${adminRound}부터 다시 시도하세요`;
+            } else if (diff > maxMs) {
+                SoundSynth.playError();
+                f.className = "text-[10px] text-red-400 font-bold";
+                f.textContent = `실패: 너무 느림 (${diff}ms) — 라운드 ${adminRound}부터 다시 시도하세요`;
+            } else {
+                f.className = "text-[10px] text-emerald-400 font-bold";
+                f.textContent = `인증 성공! (${diff}ms)`;
+                if (adminRound >= ADMIN_TOTAL_ROUNDS) {
+                    setTimeout(() => {
+                        handleMissionCompletion();
+                    }, 500);
+                } else {
+                    showSystemAlert(`✅ 라운드 ${adminRound} 통과! 다음 라운드를 준비하세요.`, "info");
+                    const arena = document.getElementById('mission-game-arena');
+                    setTimeout(() => startAdminRound(arena), 900);
+                }
+            }
+        }
+
+        function handleMissionCompletion() {
+            SoundSynth.playSuccess();
+            // 🛡️ [FIX]: This device increments its own local count and broadcasts the new total directly — no GM needed
+            config.missions.completedCount++;
+            updateMissionGlobalProgressBar();
+            publishSyncEvent('MISSION_COMPLETED', {
+                completedCount: config.missions.completedCount
+            });
+            exitMission();
+        }
+
+        // 🛡️ [VISIBILITY PATCH]: Ensure lobby screen is hidden and mission screen is fully visible when activated
+        function openMissionArena(stationId) {
+            const screenLobby = document.getElementById('screen-lobby');
+            const screenGame = document.getElementById('screen-game');
+            const screenMission = document.getElementById('screen-mission');
+            const currentName = document.getElementById('current-mission-name');
+            const currentDesc = document.getElementById('current-mission-desc');
+            const stationBadge = document.getElementById('mission-station-id');
+            const arena = document.getElementById('mission-game-arena');
+
+            // Hide all other blocking interfaces
+            if (screenLobby) screenLobby.classList.add('hidden');
+            if (screenGame) screenGame.classList.add('hidden');
+            
+            // Show mission UI
+            screenMission.classList.remove('hidden');
+            stationBadge.textContent = stationId === "MissionWire" ? "전기 배선실 (A1)" : stationId === "MissionReactor" ? "원자로실 (B3)" : "관리실 데스크 (C2)";
+
+            // Load selected game
+            if (stationId === "MissionWire") {
+                currentName.textContent = "⚡ 전기 배선 매칭 수리";
+                currentDesc.textContent = "좌측 단자가 깜빡이면 알맞은 색 단자를 찾아 연결해 주세요.";
+                loadWireMission(arena);
+            } else if (stationId === "MissionReactor") {
+                currentName.textContent = "🔮 원자로 동력 그리드 보수";
+                currentDesc.textContent = "원자로에서 방출한 깜빡임 타일의 일시적 순서를 외워 그대로 모사하십시오.";
+                loadReactorMission(arena);
+            } else if (stationId === "MissionAdmin") {
+                currentName.textContent = "📇 보안 관리실 단말기 인증";
+                currentDesc.textContent = "보안 마그네틱 슬라이더 카드를 너무 빠르거나 느리지 않은 속도로 긁어 넘기세요.";
+                loadAdminMission(arena);
+            }
+        }
+
+        // 🛡️ [VISIBILITY PATCH]: Return to lobby view if game hasn't started, or game view if in progress
+        function exitMission() {
+            document.getElementById('screen-mission').classList.add('hidden');
+            if (gameState === "LOBBY") {
+                document.getElementById('screen-lobby').classList.remove('hidden');
+            } else {
+                document.getElementById('screen-game').classList.remove('hidden');
+            }
+            updatePlayerConsoleView();
+        }
+
+        function triggerCorpseBroadcast(log) {
+            const banner = document.getElementById('corpse-broadcast-banner');
+            const text = document.getElementById('corpse-broadcast-text');
+            text.innerHTML = `<strong class="text-red-400 text-sm font-black">[${log.location}]</strong> 구역 부근에서 수리 중이던 <strong class="text-cyan-400 text-sm font-bold">${log.victim} 대원</strong>이 연락 두절되었습니다!`;
+            banner.classList.remove('hidden');
+            let sirenCycle = 0;
+            const sirenInterval = setInterval(() => {
+                if (sirenCycle > 3 || gameState === "GAMEOVER") {
+                    clearInterval(sirenInterval);
+                    return;
+                }
+                SoundSynth.playBeep(660, 'sawtooth', 0.2);
+                setTimeout(() => SoundSynth.playBeep(880, 'sawtooth', 0.2), 150);
+                sirenCycle++;
+            }, 450);
+        }
+
+        function closeCorpseBroadcast() {
+            document.getElementById('corpse-broadcast-banner').classList.add('hidden');
+        }
+
+        function updateDeathLogsUI() {
+            const container = document.getElementById('gm-death-logs-container');
+            container.innerHTML = '';
+
+            if (config.deathLogs.length === 0) {
+                container.innerHTML = `<div class="text-center text-slate-500 text-[10px] py-4">사망 보고가 등록되지 않았습니다. 안심하십시오.</div>`;
+                return;
+            }
+
+            config.deathLogs.forEach(log => {
+                const div = document.createElement('div');
+                div.className = "flex justify-between items-center text-[10px] py-1 border-b border-slate-800 text-red-300 font-medium";
+                div.innerHTML = `
+                    <span>[${log.time}] <strong class="text-slate-200 font-semibold">${log.victim}</strong> 대원</span>
+                    <span class="bg-red-950 px-1.5 py-0.5 rounded text-[8px] text-red-400">${log.location}에서 소거</span>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function updateNfcWriterSelectOptions() {
+            const selectEl = document.getElementById('nfc-write-type');
+            selectEl.innerHTML = '';
+
+            config.players.forEach((p, idx) => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `P${idx+1} 배지 (${p.name})`;
+                selectEl.appendChild(opt);
+            });
+
+            const stations = [
+                { id: "MissionWire", label: "⚡ 전기 배선실 태그" },
+                { id: "MissionReactor", label: "🔮 원자로실 태그" },
+                { id: "MissionAdmin", label: "📇 관리실 데스크 태그" }
+            ];
+
+            stations.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.label;
+                selectEl.appendChild(opt);
+            });
+        }
+
+        // 📡 [CRITICAL MULTI-BROWSER PATCH]: Inject active roomCode parameters when generating NFC tags
+        function updateNfcWritePreview() {
+            const val = document.getElementById('nfc-write-type').value;
+            const roomParam = roomCode ? `&room=${roomCode}` : '';
+            // Dynamically adapts NFC writer link to match exactly whatever hosting domain you deploy on (Netlify / Custom)
+            const targetUrl = `${window.location.origin}${window.location.pathname}?tag=${val}${roomParam}`;
+            document.getElementById('nfc-write-data').value = targetUrl;
+        }
+
+        async function writeToNfcTag() {
+            const rawData = document.getElementById('nfc-write-data').value;
+            if (!webNfcSupported) {
+                showSystemAlert("실제 기기 기록을 하려면 Web NFC API를 허용하는 안드로이드 모바일 크롬 브라우저에서 실행하셔야 합니다.", "error");
+                return;
+            }
+            try {
+                showSystemAlert("NFC 칩셋 하드웨어 응답 대기 중...", "info");
+                const ndef = new NDEFReader();
+                await ndef.write({
+                    records: [{ recordType: "url", data: rawData }]
+                });
+                SoundSynth.playSuccess();
+                showSystemAlert(`성공: NFC 카드에 쓰기 완료!`, "info");
+            } catch (error) {
+                SoundSynth.playError();
+                showSystemAlert(`기록 실패: ${error.message}`, "error");
+            }
+        }
+
+        // 🤖 Solo Debug Function: Instantly force-readies all bots in lobby
+        function autoReadyAllBots() {
+            config.players.forEach(p => {
+                p.isReady = true;
+            });
+            renderLobbyPlayerList();
+            renderSimulatedPlayersDock();
+            SoundSynth.playSuccess();
+
+            // Update on other network clients too
+            publishSyncEvent('STATE_SYNC', {
+                players: config.players,
+                impostorCount: config.impostorCount,
+                missions: config.missions,
+                traps: config.traps,
+                gameState: gameState,
+                deathLogs: config.deathLogs
+            });
+            
+            showSystemAlert("가상 대원들이 무대에 모두 진입했습니다! 이제 [비행 개시] 버튼을 눌러 테스트를 시작하세요.", "info");
+        }
+
+        // Detect if Web NFC is supported by user's browser
+        function detectWebNfc() {
+            const badge = document.getElementById('nfc-status-badge');
+            const dot = document.getElementById('nfc-status-dot');
+            const text = document.getElementById('nfc-status-text');
+
+            if ('NDEFReader' in window) {
+                webNfcSupported = true;
+                dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+                text.textContent = "NFC 센서 활성";
+                badge.classList.add('border', 'border-emerald-500/20');
+                startNfcListening();
+            } else {
+                webNfcSupported = false;
+                dot.className = "w-2.5 h-2.5 rounded-full bg-amber-500";
+                text.textContent = "가상 NFC 지원";
+                badge.classList.add('border', 'border-amber-500/10');
+            }
+        }
+
+        // Listen to actual NDEFReader events if available
+        async function startNfcListening() {
+            if (!webNfcSupported) return;
+            try {
+                const ndef = new NDEFReader();
+                await ndef.scan();
+                ndef.addEventListener("reading", ({ message }) => {
+                    for (const record of message.records) {
+                        const textDecoder = new TextDecoder();
+                        const text = textDecoder.decode(record.data);
+                        if (text.startsWith("NSC:")) {
+                            const rawAction = text.substring(4);
+                            simulateNfcScan(rawAction);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("NFC Reader failed to start:", error);
+            }
+        }
+
+        // Initialize Lobby setup name fields inside modal
+        function initializeLobbySetup() {
+            const displayCount = document.getElementById('setup-player-count-display');
+            const totalPlayers = config.players.length;
+            displayCount.textContent = totalPlayers;
+
+            // 🛡️ [FIX]: Reflect current total mission requirement in the setup modal
+            const missionInput = document.getElementById('setup-total-missions');
+            if (missionInput) missionInput.value = config.missions.totalRequired || 40;
+
+            // Generate balanced Impostor counts based on players scale
+            const impSelect = document.getElementById('setup-impostor-count');
+            impSelect.innerHTML = '';
+            
+            // Allow balanced impostor options (0 to players/2)
+            const maxBalanced = Math.floor(totalPlayers / 2);
+            for (let i = 0; i <= maxBalanced; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = `${i} 명`;
+                if (i === config.impostorCount) opt.selected = true;
+                impSelect.appendChild(opt);
+            }
+
+            const container = document.getElementById('setup-names-container');
+            container.innerHTML = '';
+
+            config.players.forEach((p, idx) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center space-x-2';
+                div.innerHTML = `
+                    <span class="text-[10px] text-slate-500 w-12">P${idx+1} 명칭</span>
+                    <input type="text" id="setup-name-input-${idx}" class="flex-1 bg-slate-950 border border-slate-800 rounded py-0.5 px-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500" value="${p.name}">
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Adjust settings count inside modal
+        function adjustPlayersCount(delta) {
+            let current = parseInt(document.getElementById('setup-player-count-display').textContent);
+            current += delta;
+            if (current < 1) current = 1; // Solo tests allowed
+            if (current > 32) current = 32;
+            document.getElementById('setup-player-count-display').textContent = current;
+
+            // Re-generate impostor select range dynamically
+            const impSelect = document.getElementById('setup-impostor-count');
+            const prevSel = parseInt(impSelect.value) || 0;
+            impSelect.innerHTML = '';
+            
+            const maxBalanced = Math.floor(current / 2);
+            for (let i = 0; i <= maxBalanced; i++) {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = `${i} 명`;
+                if (i === Math.min(prevSel, maxBalanced)) opt.selected = true;
+                impSelect.appendChild(opt);
+            }
+
+            // Recreate names inputs dynamically
+            const container = document.getElementById('setup-names-container');
+            container.innerHTML = '';
+            for (let i = 0; i < current; i++) {
+                const existingName = config.players[i] ? config.players[i].name : `크루원 ${i+1}`;
+                const div = document.createElement('div');
+                div.className = 'flex items-center space-x-2';
+                div.innerHTML = `
+                    <span class="text-[10px] text-slate-500 w-12">P${i+1} 명칭</span>
+                    <input type="text" id="setup-name-input-${i}" class="flex-1 bg-slate-950 border border-slate-800 rounded py-0.5 px-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-500" value="${existingName}">
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        // 🚀 [FIX]: Actually apply the modal's settings (player count, names, impostor count, mission total)
+        function applyNewGameSetup() {
+            if (!isGM) {
+                showSystemAlert("GM 상황실에서만 세팅을 변경할 수 있습니다.", "error");
+                return;
+            }
+
+            const newCount = parseInt(document.getElementById('setup-player-count-display').textContent) || 1;
+            const newImpostorCount = parseInt(document.getElementById('setup-impostor-count').value) || 0;
+            const missionInput = document.getElementById('setup-total-missions');
+            const newTotalMissions = parseInt(missionInput ? missionInput.value : 40);
+
+            // Collect any edited nicknames from the modal's name inputs
+            const newNames = [];
+            for (let i = 0; i < newCount; i++) {
+                const input = document.getElementById(`setup-name-input-${i}`);
+                newNames.push(input && input.value.trim() ? input.value.trim() : `크루원 ${i + 1}`);
+            }
+
+            // Rebuild player roster fresh at the new scale
+            initializeDefaultPlayers(newCount);
+            config.players.forEach((p, idx) => { p.name = newNames[idx]; });
+
+            config.impostorCount = newImpostorCount;
+            // 🛡️ [FIX]: Guard against 0/empty/NaN total missions causing the instant-win bug
+            config.missions.totalRequired = (Number.isFinite(newTotalMissions) && newTotalMissions > 0) ? newTotalMissions : 40;
+            config.missions.completedCount = 0;
+
+            gameState = "LOBBY";
+            activePlayer = null;
+            localStorage.removeItem('nfc_active_player_id');
+            saveConfigToLocalStorage();
+
+            // Broadcast the new settings to every connected device
+            publishSyncEvent('GAME_RESET', {});
+            publishSyncEvent('STATE_SYNC', {
+                players: config.players,
+                impostorCount: config.impostorCount,
+                missions: config.missions,
+                traps: config.traps,
+                gameState: gameState,
+                deathLogs: config.deathLogs
+            });
+
+            applyGameStateTransitionUI();
+            renderLobbyPlayerList();
+            renderSimulatedPlayersDock();
+            updateNfcWriterSelectOptions();
+            updateNfcWritePreview();
+            toggleSetupModal(false);
+
+            showSystemAlert(`세팅이 적용되었습니다. (총원 ${newCount}명 / 임포스터 ${newImpostorCount}명 / 필요 미션 ${config.missions.totalRequired}회)`, "info");
+        }
+
+        // Setup modal toggle
+        function toggleSetupModal(isOpen) {
+            const modal = document.getElementById('setup-modal');
+            if (isOpen) {
+                initializeLobbySetup();
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        // Global sound togglers
+        function toggleAudioMute() {
+            isMuted = !isMuted;
+            const on = document.getElementById('svg-volume-on');
+            const off = document.getElementById('svg-volume-off');
+
+            if (isMuted) {
+                on.classList.add('hidden');
+                off.classList.remove('hidden');
+            } else {
+                on.classList.remove('hidden');
+                off.classList.add('hidden');
+                SoundSynth.playBeep(440, 'sine', 0.15);
+            }
+        }
+
+        // Quick dialog feedback alerts
+        function showSystemAlert(text, type) {
+            const box = document.getElementById('system-alert-box');
+            const txt = document.getElementById('system-alert-text');
+            txt.textContent = text;
+            box.classList.remove('hidden');
+            if (type === "error") {
+                box.className = "mb-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-start space-x-2 text-xs text-red-300";
+            } else {
+                box.className = "mb-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3 flex items-start space-x-2 text-xs text-cyan-300";
+            }
+        }
+
+        function closeSystemAlert() {
+            document.getElementById('system-alert-box').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

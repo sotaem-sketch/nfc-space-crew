@@ -777,6 +777,14 @@
                 document.getElementById('room-selection-modal').classList.add('hidden');
                 initMqttSync();
             } else {
+                // 🛡️ [FIX]: Recover activePlayer here too — without a room code there's no STATE_SYNC
+                // to do this recovery for us, so a pending mission tag would otherwise run with a null
+                // activePlayer and silently fall through to spectator mode.
+                const savedPlayerIdOffline = localStorage.getItem('nfc_active_player_id');
+                if (savedPlayerIdOffline) {
+                    activePlayer = config.players.find(p => p.id === savedPlayerIdOffline) || activePlayer;
+                }
+
                 // Offline mode fallback: trigger actions immediately
                 if (pendingTagScan) {
                     const tag = pendingTagScan;
@@ -1399,6 +1407,25 @@
             if (dayNightPhase === "NIGHT") {
                 showSystemAlert("🌙 지금은 밤입니다. 미션 수행과 덫 설치가 잠겨 있습니다. 모여서 투표를 진행하세요.", "error");
                 return;
+            }
+
+            // 🛡️ [FIX]: A null activePlayer while IN_GAME almost always means this device hasn't finished
+            // recovering its session yet (e.g. a fresh page load right after tagging a physical NFC sticker,
+            // before STATE_SYNC has arrived) — NOT genuine spectator mode. Treating it as spectator mode here
+            // was letting impostors slip straight into the real crewmate mission and counting toward repairs
+            // instead of going through the disguise-mission/trap flow. Retry briefly instead of assuming spectator.
+            if (!activePlayer && gameState === "IN_GAME") {
+                if (!handleMissionTagScan._retryCount) handleMissionTagScan._retryCount = 0;
+                if (handleMissionTagScan._retryCount < 20) { // up to ~6s of retries (20 * 300ms)
+                    handleMissionTagScan._retryCount++;
+                    showSystemAlert("📡 세션 동기화 중입니다. 잠시 후 다시 시도합니다...", "info");
+                    setTimeout(() => handleMissionTagScan(stationId), 300);
+                    return;
+                }
+                // Synced too long with no luck — fall through to spectator mode as a last resort
+                handleMissionTagScan._retryCount = 0;
+            } else if (activePlayer) {
+                handleMissionTagScan._retryCount = 0;
             }
 
             // 🧪 [SANDBOX GUEST EXCEPTION]: If no player is selected (null activePlayer / Spectator mode), allow direct mission entry!

@@ -62,8 +62,10 @@
         <!-- Connection Status & View Mode Switchers -->
         <div class="flex items-center gap-1.5 lg:gap-3 flex-wrap">
             <div id="view-mode-controls" class="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-[10px] lg:text-xs shrink-0">
-                <button id="btn-mode-player" onclick="setViewMode('PLAYER')" class="px-2 py-1 rounded-md text-slate-400 font-semibold transition">📱 플레이어</button>
-                <button id="btn-mode-gm" onclick="setViewMode('GM')" class="px-2 py-1 rounded-md text-cyan-400 font-bold transition">👑 GM 상황실</button>
+                <button id="btn-mode-player" onclick="setViewMode('PLAYER')" class="px-3 py-1 rounded text-xs font-semibold transition bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700">📱 플레이어</button>
+                <!-- 🛡️ [FIX]: GM button is CSS-hidden on mobile widths (real student phones) so it can never be tapped
+                     into accidentally. Desktop/GM devices (lg breakpoint+) always see it. -->
+                <button id="btn-mode-gm" onclick="setViewMode('GM')" class="hidden lg:inline-block px-3 py-1 rounded text-xs font-bold transition bg-cyan-600 text-slate-950">👑 GM 상황실</button>
             </div>
             
             <div id="nfc-status-badge" class="flex items-center space-x-1.5 px-2 py-1 rounded-full bg-slate-800 text-[10px] lg:text-xs border border-amber-500/10 shrink-0">
@@ -612,20 +614,40 @@
             const btnPlayer = document.getElementById('btn-mode-player');
             const btnGm = document.getElementById('btn-mode-gm');
 
+            // 🛡️ [FIX]: Style buttons via classList instead of overwriting className wholesale —
+            // btn-mode-gm carries a permanent "hidden lg:inline-block" responsive class (mobile lockout)
+            // that a full className overwrite would silently erase on every mode switch.
+            const activeCls = ["bg-cyan-600", "text-slate-950"];
+            const inactiveCls = ["bg-slate-800", "text-slate-400", "border", "border-slate-700", "hover:bg-slate-700"];
+            const baseCls = ["px-3", "py-1", "rounded", "text-xs", "font-bold", "transition"];
+
+            function styleButton(btn, isActive) {
+                if (!btn) return;
+                btn.classList.remove(...activeCls, ...inactiveCls, ...baseCls, "font-semibold");
+                btn.classList.add(...baseCls);
+                if (isActive) {
+                    btn.classList.add(...activeCls);
+                } else {
+                    btn.classList.add(...inactiveCls);
+                    btn.classList.remove("font-bold");
+                    btn.classList.add("font-semibold");
+                }
+            }
+
             if (mode === 'PLAYER') {
                 isGM = false;
                 gmPanel.classList.add('hidden');
                 leftPanel.classList.remove('lg:w-[450px]');
                 leftPanel.classList.add('flex-1', 'justify-center', 'items-center');
-                btnPlayer.className = "px-3 py-1 rounded bg-cyan-600 text-slate-950 text-xs font-bold transition";
-                btnGm.className = "px-3 py-1 rounded bg-slate-800 text-slate-400 text-xs font-semibold border border-slate-700 hover:bg-slate-700 transition";
+                styleButton(btnPlayer, true);
+                styleButton(btnGm, false);
             } else {
                 isGM = true;
                 gmPanel.classList.remove('hidden');
                 leftPanel.classList.add('lg:w-[450px]');
                 leftPanel.classList.remove('flex-1', 'justify-center', 'items-center');
-                btnPlayer.className = "px-3 py-1 rounded bg-slate-800 text-slate-400 text-xs font-semibold border border-slate-700 hover:bg-slate-700 transition";
-                btnGm.className = "px-3 py-1 rounded bg-cyan-600 text-slate-950 text-xs font-bold transition";
+                styleButton(btnPlayer, false);
+                styleButton(btnGm, true);
             }
             renderSimulatedPlayersDock();
         }
@@ -1024,7 +1046,9 @@
             });
 
             let assigned = 0;
-            const targetImpostors = Math.min(config.impostorCount, totalCount - 1);
+            // 🛡️ [FIX]: Final safety net — never let a 2+ player round start with 0 impostors
+            const safeImpostorCount = (totalCount >= 2 && config.impostorCount < 1) ? 1 : config.impostorCount;
+            const targetImpostors = Math.min(safeImpostorCount, totalCount - 1);
             while (assigned < targetImpostors) {
                 const rand = Math.floor(Math.random() * totalCount);
                 if (config.players[rand].role !== "IMPOSTOR") {
@@ -1454,14 +1478,13 @@
             const activeDesc = document.getElementById('game-active-desc');
             const activeIcon = document.getElementById('game-active-icon');
 
-            if (activePlayer) {
-                // 🛡️ [SECURITY UPDATE]: Hide the GM Switcher tab completely if they are a Player
-                document.getElementById('view-mode-controls').classList.add('hidden');
-                setViewMode('PLAYER');
-            } else {
-                // If they are the PC Host / GM, keep it visible
-                document.getElementById('view-mode-controls').classList.remove('hidden');
-                
+            // 🛡️ [FIX]: Previously this forced setViewMode('PLAYER') whenever activePlayer was set, which
+            // also fired when the GM used "시점 전환" (view-swap) on their own desktop — stripping away
+            // the GM panel and the mode-toggle buttons with no way back, freezing the GM out of their own
+            // console. Real student phones already start in PLAYER mode from the responsive check on load
+            // (window.innerWidth < 1024), so this forced switch was never needed for security — only the
+            // GM's own desktop session was getting bitten by it. Mode (isGM) is no longer touched here.
+            if (!activePlayer) {
                 // 🛡️ Reset screen layout to Spectator view cleanly to prevent null pointer crashes!
                 if (nameBadge) nameBadge.textContent = "관전 중 (GM 마스터)";
                 if (roleBadge) {
@@ -2343,10 +2366,10 @@
             // Generate balanced Impostor counts based on players scale
             const impSelect = document.getElementById('setup-impostor-count');
             impSelect.innerHTML = '';
-            
-            // Allow balanced impostor options (0 to players/2)
-            const maxBalanced = Math.floor(totalPlayers / 2);
-            for (let i = 0; i <= maxBalanced; i++) {
+
+            // 🛡️ [FIX]: Always require at least 1 impostor (0 would break the game — "crewmates only" round)
+            const maxBalanced = Math.max(1, Math.floor(totalPlayers / 2));
+            for (let i = 1; i <= maxBalanced; i++) {
                 const opt = document.createElement('option');
                 opt.value = i;
                 opt.textContent = `${i} 명`;
@@ -2380,13 +2403,16 @@
             const impSelect = document.getElementById('setup-impostor-count');
             const prevSel = parseInt(impSelect.value) || 0;
             impSelect.innerHTML = '';
-            
-            const maxBalanced = Math.floor(current / 2);
-            for (let i = 0; i <= maxBalanced; i++) {
+
+            // 🛡️ [FIX]: Require at least 1 impostor once there are 2+ players (0 would break the round).
+            // Solo (1 player) sandbox testing still allows 0 since a 1-impostor game isn't playable anyway.
+            const minBalanced = current >= 2 ? 1 : 0;
+            const maxBalanced = Math.max(minBalanced, Math.floor(current / 2));
+            for (let i = minBalanced; i <= maxBalanced; i++) {
                 const opt = document.createElement('option');
                 opt.value = i;
                 opt.textContent = `${i} 명`;
-                if (i === Math.min(prevSel, maxBalanced)) opt.selected = true;
+                if (i === Math.max(minBalanced, Math.min(prevSel, maxBalanced))) opt.selected = true;
                 impSelect.appendChild(opt);
             }
 
@@ -2413,7 +2439,11 @@
             }
 
             const newCount = parseInt(document.getElementById('setup-player-count-display').textContent) || 1;
-            const newImpostorCount = parseInt(document.getElementById('setup-impostor-count').value) || 0;
+            let newImpostorCount = parseInt(document.getElementById('setup-impostor-count').value) || 0;
+            // 🛡️ [FIX]: Never allow a 0-impostor round once there are 2+ players — that's an unplayable "all crewmates" bug
+            if (newCount >= 2 && newImpostorCount < 1) {
+                newImpostorCount = 1;
+            }
             const missionInput = document.getElementById('setup-total-missions');
             const newTotalMissions = parseInt(missionInput ? missionInput.value : 40);
 

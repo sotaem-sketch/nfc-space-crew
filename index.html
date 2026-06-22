@@ -930,6 +930,10 @@
                 case 'TRAP_PLACED':
                     // 🛡️ [FIX]: Every device applies this directly — no GM gatekeeper required
                     config.traps[data.stationId] = { active: true, placedBy: data.placedBy };
+                    // 🔍 [DEBUG]: Confirm receipt — visible to all connected devices so we can verify propagation
+                    if (!isGM) {
+                        showSystemAlert(`📡 [동기화] ${getStationName(data.stationId)} 구역 덫 정보 수신됨 (active: true)`, "info");
+                    }
                     break;
 
                 case 'MISSION_COMPLETED':
@@ -1466,7 +1470,10 @@
             // CREWMATE: Check for Trap before starting game
             // 🛡️ [FIX]: No GM gatekeeper needed — this device processes its own death and broadcasts the result
             if (activePlayer.role === "CREWMATE" && activePlayer.isAlive) {
-                if (config.traps[stationId].active) {
+                // 🔍 [DEBUG]: Show trap state at the exact moment of checking so we can diagnose propagation issues
+                const trapState = config.traps[stationId];
+                showSystemAlert(`🔍 [체크] ${getStationName(stationId)} 덫 상태: ${trapState ? (trapState.active ? '활성(덫 있음)' : '비활성') : '항목 없음'}`, "info");
+                if (trapState && trapState.active) {
                     // Trigger Trap! Crewmate Dies
                     activePlayer.isAlive = false;
                     const log = {

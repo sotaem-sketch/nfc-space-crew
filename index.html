@@ -822,6 +822,17 @@
                 publishSyncEvent('REQUEST_STATE', {});
             });
 
+            // 🛡️ [FIX]: Track disconnect/reconnect so publishSyncEvent's .connected guard fires correctly
+            mqttClient.on('reconnect', () => {
+                statusText.textContent = "재연결 중...";
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse";
+            });
+
+            mqttClient.on('offline', () => {
+                statusText.textContent = "채널 연결 끊김";
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-red-500";
+            });
+
             mqttClient.on('message', (topic, payload) => {
                 try {
                     const message = JSON.parse(payload.toString());
@@ -840,13 +851,28 @@
         // Broadcaster for channel messages
         function publishSyncEvent(type, data) {
             if (!mqttClient || !roomCode) return;
+            // 🛡️ [FIX]: Check the actual connection state — mqtt.connect() returns immediately but
+            // the socket may not be ready yet; publishing before 'connect' fires silently fails.
+            if (!mqttClient.connected) {
+                showSystemAlert(`⚠️ [MQTT 미연결] ${type} 이벤트 발행 실패 — 재연결 대기 중`, "error");
+                return;
+            }
             const payload = {
                 type: type,
                 sender: activePlayer ? activePlayer.id : 'HOST',
                 timestamp: Date.now(),
                 data: data
             };
-            mqttClient.publish(`nfc_space_crew/rooms/${roomCode}/events`, JSON.stringify(payload));
+            mqttClient.publish(
+                `nfc_space_crew/rooms/${roomCode}/events`,
+                JSON.stringify(payload),
+                {},
+                (err) => {
+                    if (err) {
+                        showSystemAlert(`⚠️ [MQTT 발행 실패] ${type}: ${err.message}`, "error");
+                    }
+                }
+            );
         }
 
         // Receiver Router of synchronized system states

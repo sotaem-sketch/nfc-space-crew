@@ -235,9 +235,16 @@
                             </div>
                         </div>
 
-                        <button onclick="resetToLobby()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded-xl text-xs font-bold scifi-font uppercase tracking-wider neon-glow-cyan transition">
+                        <button onclick="confirmResetToLobby()" class="w-full bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-2.5 rounded-xl text-xs font-bold scifi-font uppercase tracking-wider neon-glow-cyan transition">
                             대기실로 원상 복구
                         </button>
+                        <div id="reset-confirm-panel" class="hidden mt-2 bg-slate-950 border border-rose-500/40 rounded-lg p-2.5 space-y-2">
+                            <p class="text-[10px] text-rose-300 font-bold text-center">⚠️ 모든 플레이어가 대기실로 돌아갑니다. 계속할까요?</p>
+                            <div class="flex gap-2">
+                                <button onclick="resetToLobby()" class="flex-1 bg-rose-700 hover:bg-rose-600 text-white py-1.5 rounded text-[10px] font-bold transition">✔ 네, 초기화합니다</button>
+                                <button onclick="document.getElementById('reset-confirm-panel').classList.add('hidden')" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded text-[10px] font-bold transition">✕ 취소</button>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
@@ -882,14 +889,20 @@
             switch(type) {
                 case 'REQUEST_STATE':
                     if (isGM) {
-                        publishSyncEvent('STATE_SYNC', {
-                            players: config.players,
-                            impostorCount: config.impostorCount,
-                            missions: config.missions,
-                            traps: config.traps,
-                            gameState: gameState,
-                            deathLogs: config.deathLogs
-                        });
+                        // 🛡️ [FIX]: If GM itself just reconnected and hasn't recovered its own state yet
+                        // (gameState still "LOBBY" from variable init but game was actually IN_GAME),
+                        // answering immediately would propagate a stale LOBBY state to everyone.
+                        // Only respond if we have at least one player in config — a sign we're properly loaded.
+                        if (config.players.length > 0) {
+                            publishSyncEvent('STATE_SYNC', {
+                                players: config.players,
+                                impostorCount: config.impostorCount,
+                                missions: config.missions,
+                                traps: config.traps,
+                                gameState: gameState,
+                                deathLogs: config.deathLogs
+                            });
+                        }
                     }
                     break;
 
@@ -899,8 +912,17 @@
                     config.missions = data.missions;
                     config.traps = data.traps;
                     config.deathLogs = data.deathLogs;
-                    
-                    if (gameState !== data.gameState) {
+
+                    // 🛡️ [FIX]: Never let a stale STATE_SYNC regress the game to a earlier state.
+                    // If a device reconnects mid-game and sends a LOBBY-state sync (its own gameState
+                    // had reset on reconnect before it recovered), treat it as "bring me up to speed"
+                    // rather than "everyone go back to lobby". Specifically guard IN_GAME → LOBBY rollback
+                    // since that's the one that was causing spontaneous mid-game lobby kicks.
+                    const stateOrder = { LOBBY: 0, IN_GAME: 1, GAMEOVER: 2 };
+                    const incomingOrder = stateOrder[data.gameState] ?? 0;
+                    const currentOrder = stateOrder[gameState] ?? 0;
+                    const allowStateChange = incomingOrder >= currentOrder; // never regress
+                    if (gameState !== data.gameState && allowStateChange) {
                         gameState = data.gameState;
                         applyGameStateTransitionUI();
                     }
@@ -1650,6 +1672,13 @@
             });
         }
 
+        function confirmResetToLobby() {
+            // 🛡️ [FIX]: Show a confirmation panel instead of immediately resetting — prevents accidental
+            // mid-game wipes that send everyone back to lobby unintentionally.
+            const panel = document.getElementById('reset-confirm-panel');
+            if (panel) panel.classList.remove('hidden');
+        }
+
         // Full reset of states to restart
         function resetToLobby() {
             // Re-shuffle roles and keep the customized scale of players cleanly in-memory
@@ -1996,7 +2025,7 @@
 
         function playSimonSequence() {
             // 🎚️ [DIFFICULTY UP]: playback speeds up each round (round 1: 400ms, round 2: 320ms, round 3: 260ms)
-            const stepDelay = Math.max(260, 400 - (simonRound - 1) * 80);
+            const stepDelay = Math.max(350, 400 - (simonRound - 1) * 25); // round 1: 400ms, round 2: 375ms, round 3: 350ms
             let delay = 0;
             simonSequence.forEach((val) => {
                 setTimeout(() => {

@@ -558,6 +558,23 @@
 
         // Real-time synchronization states
         let roomCode = localStorage.getItem('nfc_room_code') || '';
+        // 🛡️ [DEPLOYMENT ISOLATION]: Derive a unique channel namespace from this site's own URL.
+        // Every teacher deploys to a different address (e.g. their own GitHub Pages), so this
+        // automatically separates each deployment's MQTT traffic — two schools can even pick the
+        // same 4-digit room code at the same time and never collide. Zero manual edits needed.
+        const SITE_CHANNEL_PREFIX = (() => {
+            // Normalize: strip index.html and trailing slash so /path/, /path, /path/index.html
+            // all map to the same channel — a student typing the full filename must not fork off
+            // into a separate (empty) channel.
+            let path = window.location.pathname.replace(/index\.html?$/i, '').replace(/\/+$/, '');
+            const raw = (window.location.hostname + path).toLowerCase();
+            // Simple stable hash → short alphanumeric string
+            let hash = 0;
+            for (let i = 0; i < raw.length; i++) {
+                hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+            }
+            return 'site_' + Math.abs(hash).toString(36);
+        })();
         let mqttClient = null;
         let activePlayer = null; 
         let gameState = "LOBBY"; // LOBBY, IN_GAME, GAMEOVER
@@ -577,6 +594,10 @@
         // Mini games local states
         let selectedWireLeft = null;
         let completedConnections = 0;
+        // 🛡️ [FIX]: Track processed mission-completion event IDs to prevent double-counting.
+        // Each device increments its own count then broadcasts a unique ID; other devices check
+        // this set before counting so the same completion isn't added twice.
+        const processedMissionEventIds = new Set();
         let simonSequence = [];
         let playerSequence = [];
         let simonRound = 0; // 🎚️ [DIFFICULTY UP]: tracks how many rounds cleared this mission attempt
@@ -823,7 +844,7 @@
                 statusText.textContent = `채널 연결: ${roomCode}`;
                 statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
                 
-                mqttClient.subscribe(`nfc_space_crew/rooms/${roomCode}/events`);
+                mqttClient.subscribe(`nfc_space_crew/${SITE_CHANNEL_PREFIX}/rooms/${roomCode}/events`);
                 
                 // Request current room state from GM Master
                 publishSyncEvent('REQUEST_STATE', {});
@@ -871,7 +892,7 @@
                 data: data
             };
             mqttClient.publish(
-                `nfc_space_crew/rooms/${roomCode}/events`,
+                `nfc_space_crew/${SITE_CHANNEL_PREFIX}/rooms/${roomCode}/events`,
                 JSON.stringify(payload),
                 {},
                 (err) => {
@@ -969,6 +990,8 @@
                     trapCooldownUntil = 0;
                     // 🆕 [IMPOSTOR DECOY MISSION]: Clear any leftover decoy-mission state from a previous round
                     impostorDecoyStationId = null;
+                    // 🛡️ [FIX]: Clear processed mission event IDs so the new round starts from zero
+                    processedMissionEventIds.clear();
                     // 🆕 [DAY/NIGHT CYCLE]: fresh round always starts in DAY
                     dayNightPhase = "DAY";
                     document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
@@ -976,18 +999,22 @@
                     break;
 
                 case 'TRAP_PLACED':
-                    // 🛡️ [FIX]: Every device applies this directly — no GM gatekeeper required
+                    // Kept for backward compatibility — main path now uses STATE_SYNC for reliability
                     config.traps[data.stationId] = { active: true, placedBy: data.placedBy };
-                    // 🔍 [DEBUG]: Confirm receipt — visible to all connected devices so we can verify propagation
-                    if (!isGM) {
-                        showSystemAlert(`📡 [동기화] ${getStationName(data.stationId)} 구역 덫 정보 수신됨 (active: true)`, "info");
-                    }
                     break;
 
                 case 'MISSION_COMPLETED':
-                    // 🛡️ [FIX]: Adopt the sender's authoritative count rather than incrementing again locally
-                    // (prevents double-counting when every device processes its own actions)
-                    config.missions.completedCount = Math.max(config.missions.completedCount, data.completedCount);
+                    // 🛡️ [FIX]: Guard against the cascading double-count bug.
+                    // Old approach used Math.max() which caused 28 independent local counters to race,
+                    // making the count explode to ~80%+ instantly when several students finished missions.
+                    // New approach: each event has a unique ID — if we've already counted it (i.e. we're
+                    // the device that completed it), skip. Otherwise add exactly +1.
+                    if (data.eventId && processedMissionEventIds.has(data.eventId)) {
+                        // We already counted this one ourselves — skip to avoid double-counting
+                        break;
+                    }
+                    if (data.eventId) processedMissionEventIds.add(data.eventId);
+                    config.missions.completedCount++;
                     updateMissionGlobalProgressBar();
                     break;
 
@@ -1041,6 +1068,13 @@
                     activePlayer = null;
                     localStorage.removeItem('nfc_active_player_id');
                     initializeDefaultPlayers(config.players.length);
+                    // 🛡️ [FIX]: Reset all mid-game state variables on lobby return so the next round
+                    // never inherits stale values (night lock, cooldowns, orphaned decoy session, event IDs)
+                    dayNightPhase = "DAY";
+                    document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
+                    trapCooldownUntil = 0;
+                    impostorDecoyStationId = null;
+                    processedMissionEventIds.clear();
                     applyGameStateTransitionUI();
                     renderLobbyPlayerList();
                     renderSimulatedPlayersDock();
@@ -1122,6 +1156,7 @@
             const safeTotal = parseInt(config.missions.totalRequired);
             config.missions.totalRequired = (Number.isFinite(safeTotal) && safeTotal > 0) ? safeTotal : 40;
             config.missions.completedCount = 0;
+            processedMissionEventIds.clear();
             config.traps = {
                 MissionWire: { active: false, placedBy: null },
                 MissionReactor: { active: false, placedBy: null },
@@ -1518,9 +1553,7 @@
             // CREWMATE: Check for Trap before starting game
             // 🛡️ [FIX]: No GM gatekeeper needed — this device processes its own death and broadcasts the result
             if (activePlayer.role === "CREWMATE" && activePlayer.isAlive) {
-                // 🔍 [DEBUG]: Show trap state at the exact moment of checking so we can diagnose propagation issues
                 const trapState = config.traps[stationId];
-                showSystemAlert(`🔍 [체크] ${getStationName(stationId)} 덫 상태: ${trapState ? (trapState.active ? '활성(덫 있음)' : '비활성') : '항목 없음'}`, "info");
                 if (trapState && trapState.active) {
                     // Trigger Trap! Crewmate Dies
                     activePlayer.isAlive = false;
@@ -1532,6 +1565,15 @@
                     config.deathLogs.unshift(log);
                     config.traps[stationId] = { active: false, placedBy: null };
 
+                    // 🛡️ [FIX]: Send STATE_SYNC first for reliability, then PLAYER_DIED for the death animation
+                    publishSyncEvent('STATE_SYNC', {
+                        players: config.players,
+                        impostorCount: config.impostorCount,
+                        missions: config.missions,
+                        traps: config.traps,
+                        gameState: gameState,
+                        deathLogs: config.deathLogs
+                    });
                     publishSyncEvent('PLAYER_DIED', {
                         victimId: activePlayer.id,
                         location: getStationName(stationId),
@@ -1620,7 +1662,9 @@
             document.getElementById('crew-progress-sub').textContent = `완료한 총 수리 횟수: ${current} / ${total}회`;
             document.getElementById('gm-completed-missions').textContent = `${current}/${total}회`;
 
-            if (pct >= 100) {
+            if (pct >= 100 && gameState === "IN_GAME") {
+                // 🛡️ [FIX]: Only trigger the win while actually in-game — without this guard, a stale
+                // 100% count could re-fire the gameover screen from the lobby or after a reset.
                 triggerGameOver("CREWMATES_WIN");
             }
         }
@@ -1685,6 +1729,13 @@
             initializeDefaultPlayers(config.players.length);
             saveConfigToLocalStorage();
 
+            // Reset all mid-game state on GM's own device before broadcasting
+            dayNightPhase = "DAY";
+            document.getElementById('mobile-screen').classList.remove('brightness-[0.25]');
+            trapCooldownUntil = 0;
+            impostorDecoyStationId = null;
+            processedMissionEventIds.clear();
+
             // Notify everyone of the reset so they go back to the lobby state without refreshes
             publishSyncEvent('GAME_RESET', {});
 
@@ -1704,6 +1755,9 @@
         // Impostor kill simulated button helper
         // Realtime balance check for Win/Loss
         function checkGameEndConditions() {
+            // 🛡️ [FIX]: Only evaluate win/loss while the game is actually running
+            if (gameState !== "IN_GAME") return;
+
             const aliveImpostors = config.players.filter(p => p.role === "IMPOSTOR" && p.isAlive).length;
             const aliveCrewmates = config.players.filter(p => p.role !== "IMPOSTOR" && p.isAlive).length;
 
@@ -2158,8 +2212,11 @@
             const idx = oxygenInput.length - 1;
             if (oxygenInput[idx] !== oxygenCode[idx]) {
                 SoundSynth.playError();
-                showSystemAlert(`🔢 코드 불일치! 라운드 ${oxygenRound}부터 다시 암기하십시오.`, "error");
+                showSystemAlert(`🔢 코드 불일치! 라운드 ${oxygenRound}를 다시 시도하십시오.`, "error");
                 const arena = document.getElementById('mission-game-arena');
+                // 🛡️ [FIX]: Retry the SAME round — decrement first so startOxygenRound's ++ brings us back
+                // to the same round number instead of advancing to the next one on failure.
+                oxygenRound--;
                 setTimeout(() => startOxygenRound(arena), 700);
                 return;
             }
@@ -2198,9 +2255,19 @@
 
                 SoundSynth.playSuccess();
                 config.traps[stationId] = { active: true, placedBy: activePlayer ? activePlayer.id : 'HOST' };
-                publishSyncEvent('TRAP_PLACED', {
-                    stationId: stationId,
-                    placedBy: activePlayer ? activePlayer.id : 'HOST'
+
+                // 🛡️ [FIX]: Broadcast the entire state instead of a single TRAP_PLACED event.
+                // Individual MQTT events were occasionally lost in transit (broker reliability issue),
+                // leaving crewmate devices with stale trap state (active: false) and no death trigger.
+                // STATE_SYNC is the authoritative full-state snapshot — if any device missed it,
+                // they'll request it again on reconnect via REQUEST_STATE anyway.
+                publishSyncEvent('STATE_SYNC', {
+                    players: config.players,
+                    impostorCount: config.impostorCount,
+                    missions: config.missions,
+                    traps: config.traps,
+                    gameState: gameState,
+                    deathLogs: config.deathLogs
                 });
 
                 showSystemAlert(`😈 [위장 성공] ${getStationName(stationId)}에 오염 지뢰를 가설했습니다! (다음 설치까지 ${TRAP_COOLDOWN_SEC}초 대기)`, "error");
@@ -2209,11 +2276,16 @@
             }
 
             SoundSynth.playSuccess();
-            // 🛡️ [FIX]: This device increments its own local count and broadcasts the new total directly — no GM needed
+            // 🛡️ [FIX]: Stamp a unique ID on this completion event so other devices can detect
+            // and skip it if they've already counted it — prevents the cascading double-count bug
+            // where Math.max() caused 28 independent counters to race each other to 100%.
+            const missionEventId = `${activePlayer ? activePlayer.id : 'HOST'}_${Date.now()}`;
+            processedMissionEventIds.add(missionEventId); // mark as already counted on this device
             config.missions.completedCount++;
             updateMissionGlobalProgressBar();
             publishSyncEvent('MISSION_COMPLETED', {
-                completedCount: config.missions.completedCount
+                completedCount: config.missions.completedCount,
+                eventId: missionEventId
             });
             exitMission();
         }
@@ -2524,6 +2596,12 @@
         function applyNewGameSetup() {
             if (!isGM) {
                 showSystemAlert("GM 상황실에서만 세팅을 변경할 수 있습니다.", "error");
+                return;
+            }
+            // 🛡️ [FIX]: Block mid-game setup changes — applying settings resets the entire game state,
+            // which would wipe all roles, traps, and mission progress unexpectedly while a round is live.
+            if (gameState === "IN_GAME") {
+                showSystemAlert("⚠️ 게임이 진행 중입니다. 먼저 '대기실로 원상 복구'를 누른 뒤 세팅을 변경하세요.", "error");
                 return;
             }
 
